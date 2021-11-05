@@ -26,6 +26,12 @@ type Query {
     topProducts: [Product!]! @resolve(service: "products")
     node(id: ID!): Node @resolve(service: "accounts")
     reviews(productId: ID!, limit: Int): [Review!]! @resolve(service: "reviews")
+    users(sortOrder: UserSortOrder!): [User!]! @resolve(service: "accounts")
+}
+
+enum UserSortOrder {
+  NAME
+  CREATED_AT
 }
 
 type Mutation {
