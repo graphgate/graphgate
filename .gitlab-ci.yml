@@ -1,0 +1,49 @@
+image: "rustlang/rust:nightly"
+services:
+  - docker:dind
+variables:
+  DOCKER_TLS_CERTDIR: ""
+  DOCKER_IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+stages:
+  - verify
+  - build
+  - publish
+test:cargo:
+  stage: verify
+  cache:         
+    key: "cache-test"         
+    paths:             
+      - ./target
+  script:
+    - rustc --version && cargo --version  
+    - rustup component add rustfmt
+    - rustup component add clippy-preview
+    - cargo fmt --verbose
+    - cargo clippy --verbose
+    - cargo test --all --verbose
+release:cargo:
+  stage: build
+  cache:         
+    key: "cache-release"         
+    paths:             
+      - ./target
+  script:
+    - cargo build --release --verbose
+doc:cargo:
+  stage: build
+  script:
+    - cargo doc --no-deps 
+publish:dockerhub:
+  image: docker:latest
+  stage: publish
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
+    - docker build --pull -t "$DOCKER_IMAGE_NAME" .
+    - docker push "$DOCKER_IMAGE_NAME"
+    - |
+      if [[ "$CI_COMMIT_BRANCH" == "$CI_DEFAULT_BRANCH" ]]; then
+        docker tag "$DOCKER_IMAGE_NAME" "$CI_REGISTRY_IMAGE:latest"
+        docker push "$CI_REGISTRY_IMAGE:latest"
+      fi
+
