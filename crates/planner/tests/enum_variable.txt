@@ -15,5 +15,5 @@ query($sortOrder: UserSortOrder!){
     "variables": {
         "sortOrder": "CREATED_AT"
     },
-    "query": "query($sortOrder: UserSortOrder!) { users(sortOrder: $sortOrder) { id username } }"
+    "query": "query($sortOrder: UserSortOrder!)\n{ users(sortOrder: $sortOrder) { id username } }"
 }
