@@ -1,6 +1,0 @@
-bind = "0.0.0.0:8000"
-[[services]]
-name = "ledger"
-addr = "0.0.0.0:3050"
-subscribe_path = "/ws"
-websocket_path = "/ws"
