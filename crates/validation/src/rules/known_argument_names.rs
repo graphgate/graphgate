@@ -1,18 +1,16 @@
 use graphgate_schema::MetaInputValue;
 use indexmap::IndexMap;
-use parser::types::{Directive, Field};
-use parser::Positioned;
+use parser::{
+    types::{Directive, Field},
+    Positioned,
+};
 use value::{Name, Value};
 
-use crate::suggestion::make_suggestion;
-use crate::{Visitor, VisitorContext};
+use crate::{suggestion::make_suggestion, Visitor, VisitorContext};
 
 enum ArgsType<'a> {
     Directive(&'a str),
-    Field {
-        field_name: &'a str,
-        type_name: &'a str,
-    },
+    Field { field_name: &'a str, type_name: &'a str },
 }
 
 #[derive(Default)]
@@ -26,8 +24,7 @@ impl<'a> KnownArgumentNames<'a> {
             " Did you mean",
             self.current_args
                 .iter()
-                .map(|(args, _)| args.iter().map(|arg| arg.0.as_str()))
-                .flatten(),
+                .flat_map(|(args, _)| args.iter().map(|arg| arg.0.as_str())),
             name,
         )
         .unwrap_or_default()
@@ -35,11 +32,7 @@ impl<'a> KnownArgumentNames<'a> {
 }
 
 impl<'a> Visitor<'a> for KnownArgumentNames<'a> {
-    fn enter_directive(
-        &mut self,
-        ctx: &mut VisitorContext<'a>,
-        directive: &'a Positioned<Directive>,
-    ) {
+    fn enter_directive(&mut self, ctx: &mut VisitorContext<'a>, directive: &'a Positioned<Directive>) {
         self.current_args = ctx
             .schema
             .directives
@@ -47,11 +40,7 @@ impl<'a> Visitor<'a> for KnownArgumentNames<'a> {
             .map(|d| (&d.arguments, ArgsType::Directive(&directive.node.name.node)));
     }
 
-    fn exit_directive(
-        &mut self,
-        _ctx: &mut VisitorContext<'a>,
-        _directive: &'a Positioned<Directive>,
-    ) {
+    fn exit_directive(&mut self, _ctx: &mut VisitorContext<'a>, _directive: &'a Positioned<Directive>) {
         self.current_args = None;
     }
 
@@ -64,10 +53,7 @@ impl<'a> Visitor<'a> for KnownArgumentNames<'a> {
         if let Some((args, arg_type)) = &self.current_args {
             if !args.contains_key(name.node.as_str()) {
                 match arg_type {
-                    ArgsType::Field {
-                        field_name,
-                        type_name,
-                    } => {
+                    ArgsType::Field { field_name, type_name } => {
                         ctx.report_error(
                             vec![name.pos],
                             format!(
@@ -78,7 +64,7 @@ impl<'a> Visitor<'a> for KnownArgumentNames<'a> {
                                 self.get_suggestion(name.node.as_str())
                             ),
                         );
-                    }
+                    },
                     ArgsType::Directive(directive_name) => {
                         ctx.report_error(
                             vec![name.pos],
@@ -89,7 +75,7 @@ impl<'a> Visitor<'a> for KnownArgumentNames<'a> {
                                 self.get_suggestion(name.node.as_str())
                             ),
                         );
-                    }
+                    },
                 }
             }
         }
@@ -98,13 +84,10 @@ impl<'a> Visitor<'a> for KnownArgumentNames<'a> {
     fn enter_field(&mut self, ctx: &mut VisitorContext<'a>, field: &'a Positioned<Field>) {
         if let Some(parent_type) = ctx.parent_type() {
             if let Some(schema_field) = parent_type.field_by_name(&field.node.name.node) {
-                self.current_args = Some((
-                    &schema_field.arguments,
-                    ArgsType::Field {
-                        field_name: &field.node.name.node,
-                        type_name: &ctx.parent_type().unwrap().name,
-                    },
-                ));
+                self.current_args = Some((&schema_field.arguments, ArgsType::Field {
+                    field_name: &field.node.name.node,
+                    type_name: &ctx.parent_type().unwrap().name,
+                }));
             }
         }
     }

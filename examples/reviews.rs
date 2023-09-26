@@ -19,10 +19,7 @@ impl User {
 
     async fn reviews<'a>(&self, ctx: &'a Context<'_>) -> Vec<&'a Review> {
         let reviews = ctx.data_unchecked::<Vec<Review>>();
-        reviews
-            .iter()
-            .filter(|review| review.author.id == self.id)
-            .collect()
+        reviews.iter().filter(|review| review.author.id == self.id).collect()
     }
 }
 
@@ -39,14 +36,11 @@ impl Product {
 
     async fn reviews<'a>(&self, ctx: &'a Context<'_>) -> Vec<&'a Review> {
         let reviews = ctx.data_unchecked::<Vec<Review>>();
-        reviews
-            .iter()
-            .filter(|review| review.product.upc == self.upc)
-            .collect()
+        reviews.iter().filter(|review| review.product.upc == self.upc).collect()
     }
 
     async fn error(&self) -> Result<i32, &str> {
-        return Err("custom error");
+        Err("custom error")
     }
 }
 
@@ -103,7 +97,8 @@ async fn main() {
             },
         },
         Review {
-            body: "Fedoras are one of the most fashionable hats around and can look great with a variety of outfits.".into(),
+            body: "Fedoras are one of the most fashionable hats around and can look great with a variety of outfits."
+                .into(),
             author: User { id: "1234".into() },
             product: Product {
                 upc: "top-1".to_string(),
@@ -127,13 +122,8 @@ async fn main() {
     let routes = graphql(schema.clone())
         .and(warp::post())
         .and_then(
-            |(schema, request): (
-                Schema<Query, EmptyMutation, Subscription>,
-                async_graphql::Request,
-            )| async move {
-                Ok::<_, Infallible>(
-                    warp::reply::json(&schema.execute(request).await).into_response(),
-                )
+            |(schema, request): (Schema<Query, EmptyMutation, Subscription>, async_graphql::Request)| async move {
+                Ok::<_, Infallible>(warp::reply::json(&schema.execute(request).await).into_response())
             },
         )
         .or(graphql_subscription(schema));

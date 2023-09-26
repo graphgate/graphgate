@@ -52,6 +52,6 @@ pub fn check_rules(
         VariablesAreInputTypes,
         VariableInAllowedPosition
     );
-    visit(&mut visitor, &mut ctx, &document);
+    visit(&mut visitor, &mut ctx, document);
     ctx.errors
 }

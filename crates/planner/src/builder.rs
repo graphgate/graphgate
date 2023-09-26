@@ -4,23 +4,58 @@ use std::collections::HashMap;
 
 use graphgate_schema::{ComposedSchema, KeyFields, MetaField, MetaType, TypeKind, ValueExt};
 use indexmap::IndexMap;
-use parser::types::{
-    BaseType, DocumentOperations, ExecutableDocument, Field, FragmentDefinition,
-    OperationDefinition, OperationType, Selection, SelectionSet, Type, VariableDefinition,
+use parser::{
+    types::{
+        BaseType,
+        DocumentOperations,
+        ExecutableDocument,
+        Field,
+        FragmentDefinition,
+        OperationDefinition,
+        OperationType,
+        Selection,
+        SelectionSet,
+        Type,
+        VariableDefinition,
+    },
+    Positioned,
 };
-use parser::Positioned;
 use value::{ConstValue, Name, Value, Variables};
 
-use crate::plan::{
-    FetchNode, FlattenNode, IntrospectionDirective, IntrospectionField, IntrospectionNode,
-    IntrospectionSelectionSet, ParallelNode, PathSegment, PlanNode, ResponsePath, SequenceNode,
+use crate::{
+    plan::{
+        FetchNode,
+        FlattenNode,
+        IntrospectionDirective,
+        IntrospectionField,
+        IntrospectionNode,
+        IntrospectionSelectionSet,
+        ParallelNode,
+        PathSegment,
+        PlanNode,
+        ResponsePath,
+        SequenceNode,
+    },
+    types::{
+        FetchEntity,
+        FetchEntityGroup,
+        FetchEntityKey,
+        FetchQuery,
+        FieldRef,
+        MutationRootGroup,
+        QueryRootGroup,
+        RequiredRef,
+        RootGroup,
+        SelectionRef,
+        SelectionRefSet,
+        VariableDefinitionsRef,
+        VariablesRef,
+    },
+    Response,
+    RootNode,
+    ServerError,
+    SubscribeNode,
 };
-use crate::types::{
-    FetchEntity, FetchEntityGroup, FetchEntityKey, FetchQuery, FieldRef, MutationRootGroup,
-    QueryRootGroup, RequiredRef, RootGroup, SelectionRef, SelectionRefSet, VariableDefinitionsRef,
-    VariablesRef,
-};
-use crate::{Response, RootNode, ServerError, SubscribeNode};
 
 #[derive(Debug)]
 struct Context<'a> {
@@ -58,8 +93,7 @@ impl<'a> PlanBuilder<'a> {
     }
 
     fn check_rules(&self) -> Result<(), Response> {
-        let rule_errors =
-            graphgate_validation::check_rules(self.schema, &self.document, &self.variables);
+        let rule_errors = graphgate_validation::check_rules(self.schema, &self.document, &self.variables);
         if !rule_errors.is_empty() {
             return Err(Response {
                 data: ConstValue::Null,
@@ -177,12 +211,9 @@ impl<'a> Context<'a> {
                                 &field.node,
                             );
                         }
-                    }
+                    },
                     Selection::FragmentSpread(fragment_spread) => {
-                        if let Some(fragment) = ctx
-                            .fragments
-                            .get(fragment_spread.node.fragment_name.node.as_str())
-                        {
+                        if let Some(fragment) = ctx.fragments.get(fragment_spread.node.fragment_name.node.as_str()) {
                             build_root_selection_set_rec(
                                 ctx,
                                 root_group,
@@ -192,7 +223,7 @@ impl<'a> Context<'a> {
                                 &fragment.node.selection_set.node,
                             );
                         }
-                    }
+                    },
                     Selection::InlineFragment(inline_fragment) => {
                         build_root_selection_set_rec(
                             ctx,
@@ -202,7 +233,7 @@ impl<'a> Context<'a> {
                             parent_type,
                             &inline_fragment.node.selection_set.node,
                         );
-                    }
+                    },
                 }
             }
         }
@@ -254,9 +285,7 @@ impl<'a> Context<'a> {
             let mut next_group = FetchEntityGroup::new();
 
             for (
-                FetchEntityKey {
-                    service, mut path, ..
-                },
+                FetchEntityKey { service, mut path, .. },
                 FetchEntity {
                     parent_type,
                     prefix,
@@ -293,12 +322,7 @@ impl<'a> Context<'a> {
                 }));
             }
 
-            nodes.push(
-                PlanNode::Parallel(ParallelNode {
-                    nodes: flatten_nodes,
-                })
-                .flatten(),
-            );
+            nodes.push(PlanNode::Parallel(ParallelNode { nodes: flatten_nodes }).flatten());
             fetch_entity_group = next_group;
         }
 
@@ -362,9 +386,7 @@ impl<'a> Context<'a> {
             let mut next_group = FetchEntityGroup::new();
 
             for (
-                FetchEntityKey {
-                    service, mut path, ..
-                },
+                FetchEntityKey { service, mut path, .. },
                 FetchEntity {
                     parent_type,
                     prefix,
@@ -401,12 +423,7 @@ impl<'a> Context<'a> {
                 }));
             }
 
-            query_nodes.push(
-                PlanNode::Parallel(ParallelNode {
-                    nodes: flatten_nodes,
-                })
-                .flatten(),
-            );
+            query_nodes.push(PlanNode::Parallel(ParallelNode { nodes: flatten_nodes }).flatten());
             fetch_entity_group = next_group;
         }
 
@@ -434,26 +451,19 @@ impl<'a> Context<'a> {
                 match &selection.node {
                     Selection::Field(field) => {
                         ctx.build_introspection_field(introspection_selection_set, &field.node);
-                    }
+                    },
                     Selection::FragmentSpread(fragment_spread) => {
-                        if let Some(fragment) = ctx
-                            .fragments
-                            .get(fragment_spread.node.fragment_name.node.as_str())
-                        {
-                            build_selection_set(
-                                ctx,
-                                introspection_selection_set,
-                                &fragment.node.selection_set.node,
-                            );
+                        if let Some(fragment) = ctx.fragments.get(fragment_spread.node.fragment_name.node.as_str()) {
+                            build_selection_set(ctx, introspection_selection_set, &fragment.node.selection_set.node);
                         }
-                    }
+                    },
                     Selection::InlineFragment(inline_fragment) => {
                         build_selection_set(
                             ctx,
                             introspection_selection_set,
                             &inline_fragment.node.selection_set.node,
                         );
-                    }
+                    },
                 }
             }
         }
@@ -471,9 +481,7 @@ impl<'a> Context<'a> {
                             .node
                             .clone()
                             .into_const_with(|name| {
-                                Ok::<_, std::convert::Infallible>(
-                                    ctx.variables.get(&name).unwrap().clone(),
-                                )
+                                Ok::<_, std::convert::Infallible>(ctx.variables.get(&name).unwrap().clone())
                             })
                             .unwrap(),
                     )
@@ -511,9 +519,7 @@ impl<'a> Context<'a> {
         let field_name = field.name.node.as_str();
 
         if field_name == "__typename" {
-            selection_ref_set
-                .0
-                .push(SelectionRef::IntrospectionTypename);
+            selection_ref_set.0.push(SelectionRef::IntrospectionTypename);
             return;
         }
 
@@ -526,11 +532,7 @@ impl<'a> Context<'a> {
             None => return,
         };
 
-        let service = match field_definition
-            .service
-            .as_deref()
-            .or_else(|| parent_type.owner.as_deref())
-        {
+        let service = match field_definition.service.as_deref().or(parent_type.owner.as_deref()) {
             Some(service) => service,
             None => current_service,
         };
@@ -553,7 +555,7 @@ impl<'a> Context<'a> {
                     fetch_entity_group,
                     parent_type,
                     field,
-                    &field_definition,
+                    field_definition,
                     service,
                     keys,
                 );
@@ -574,7 +576,7 @@ impl<'a> Context<'a> {
                 &mut sub_selection_set,
                 fetch_entity_group,
                 current_service,
-                &field_type,
+                field_type,
                 &field.selection_set.node,
             );
         } else {
@@ -597,7 +599,7 @@ impl<'a> Context<'a> {
 
     fn add_fetch_entity(
         &mut self,
-        path: &mut ResponsePath<'a>,
+        path: &ResponsePath<'a>,
         selection_ref_set: &mut SelectionRefSet<'a>,
         fetch_entity_group: &mut FetchEntityGroup<'a>,
         parent_type: &'a MetaType,
@@ -615,25 +617,20 @@ impl<'a> Context<'a> {
         match fetch_entity_group.get_mut(&fetch_entity_key) {
             Some(fetch_entity) => {
                 fetch_entity.fields.push(field);
-            }
+            },
             None => {
                 let prefix = self.take_key_prefix();
-                selection_ref_set
-                    .0
-                    .push(SelectionRef::RequiredRef(RequiredRef {
-                        prefix,
-                        fields: keys,
-                        requires: meta_field.requires.as_ref(),
-                    }));
-                fetch_entity_group.insert(
-                    fetch_entity_key,
-                    FetchEntity {
-                        parent_type,
-                        prefix,
-                        fields: vec![field],
-                    },
-                );
-            }
+                selection_ref_set.0.push(SelectionRef::RequiredRef(RequiredRef {
+                    prefix,
+                    fields: keys,
+                    requires: meta_field.requires.as_ref(),
+                }));
+                fetch_entity_group.insert(fetch_entity_key, FetchEntity {
+                    parent_type,
+                    prefix,
+                    fields: vec![field],
+                });
+            },
         }
     }
 
@@ -657,12 +654,9 @@ impl<'a> Context<'a> {
                         parent_type,
                         &field.node,
                     );
-                }
+                },
                 Selection::FragmentSpread(fragment_spread) => {
-                    if let Some(fragment) = self
-                        .fragments
-                        .get(fragment_spread.node.fragment_name.node.as_str())
-                    {
+                    if let Some(fragment) = self.fragments.get(fragment_spread.node.fragment_name.node.as_str()) {
                         self.build_selection_set(
                             path,
                             selection_ref_set,
@@ -672,7 +666,7 @@ impl<'a> Context<'a> {
                             &fragment.node.selection_set.node,
                         );
                     }
-                }
+                },
                 Selection::InlineFragment(inline_fragment) => {
                     self.build_selection_set(
                         path,
@@ -682,7 +676,7 @@ impl<'a> Context<'a> {
                         parent_type,
                         &inline_fragment.node.selection_set.node,
                     );
-                }
+                },
             }
         }
     }
@@ -718,11 +712,9 @@ impl<'a> Context<'a> {
                             possible_type,
                             &field.node,
                         );
-                    }
+                    },
                     Selection::FragmentSpread(fragment_spread) => {
-                        if let Some(fragment) =
-                            ctx.fragments.get(&fragment_spread.node.fragment_name.node)
-                        {
+                        if let Some(fragment) = ctx.fragments.get(&fragment_spread.node.fragment_name.node) {
                             if fragment.node.type_condition.node.on.node == current_ty {
                                 build_fields(
                                     ctx,
@@ -734,17 +726,13 @@ impl<'a> Context<'a> {
                                     possible_type,
                                 );
                             } else {
-                                let field_type = match ctx
-                                    .schema
-                                    .types
-                                    .get(&fragment.node.type_condition.node.on.node)
+                                let field_type = match ctx.schema.types.get(&fragment.node.type_condition.node.on.node)
                                 {
                                     Some(field_type) => field_type,
                                     None => return,
                                 };
 
-                                if matches!(field_type.kind, TypeKind::Interface | TypeKind::Union)
-                                {
+                                if matches!(field_type.kind, TypeKind::Interface | TypeKind::Union) {
                                     build_fields(
                                         ctx,
                                         path,
@@ -757,14 +745,9 @@ impl<'a> Context<'a> {
                                 }
                             }
                         }
-                    }
+                    },
                     Selection::InlineFragment(inline_fragment) => {
-                        match inline_fragment
-                            .node
-                            .type_condition
-                            .as_ref()
-                            .map(|node| &node.node)
-                        {
+                        match inline_fragment.node.type_condition.as_ref().map(|node| &node.node) {
                             Some(type_condition) if type_condition.on.node == current_ty => {
                                 build_fields(
                                     ctx,
@@ -775,10 +758,10 @@ impl<'a> Context<'a> {
                                     &inline_fragment.node.selection_set.node,
                                     possible_type,
                                 );
-                            }
+                            },
                             Some(_type_condition) => {
                                 // Other type condition
-                            }
+                            },
                             None => {
                                 build_fields(
                                     ctx,
@@ -789,9 +772,9 @@ impl<'a> Context<'a> {
                                     &inline_fragment.node.selection_set.node,
                                     possible_type,
                                 );
-                            }
+                            },
                         }
-                    }
+                    },
                 }
             }
         }
@@ -831,40 +814,28 @@ impl<'a> Context<'a> {
     }
 
     fn field_in_keys(&self, field: &Field, keys: &KeyFields) -> bool {
-        fn selection_set_in_keys(
-            ctx: &Context<'_>,
-            selection_set: &SelectionSet,
-            keys: &KeyFields,
-        ) -> bool {
+        fn selection_set_in_keys(ctx: &Context<'_>, selection_set: &SelectionSet, keys: &KeyFields) -> bool {
             for selection in &selection_set.items {
                 match &selection.node {
                     Selection::Field(field) => {
                         if !ctx.field_in_keys(&field.node, keys) {
                             return false;
                         }
-                    }
+                    },
                     Selection::FragmentSpread(fragment_spread) => {
-                        if let Some(fragment) = ctx
-                            .fragments
-                            .get(fragment_spread.node.fragment_name.node.as_str())
-                        {
-                            if !selection_set_in_keys(ctx, &fragment.node.selection_set.node, keys)
-                            {
+                        if let Some(fragment) = ctx.fragments.get(fragment_spread.node.fragment_name.node.as_str()) {
+                            if !selection_set_in_keys(ctx, &fragment.node.selection_set.node, keys) {
                                 return false;
                             }
                         } else {
                             return false;
                         }
-                    }
+                    },
                     Selection::InlineFragment(inline_fragment) => {
-                        if !selection_set_in_keys(
-                            ctx,
-                            &inline_fragment.node.selection_set.node,
-                            keys,
-                        ) {
+                        if !selection_set_in_keys(ctx, &inline_fragment.node.selection_set.node, keys) {
                             return false;
                         }
-                    }
+                    },
                 }
             }
             true
@@ -895,9 +866,7 @@ fn get_operation<'a>(
     } else {
         match &document.operations {
             DocumentOperations::Single(operation) => Some(operation),
-            DocumentOperations::Multiple(map) if map.len() == 1 => {
-                Some(map.iter().next().unwrap().1)
-            }
+            DocumentOperations::Multiple(map) if map.len() == 1 => Some(map.iter().next().unwrap().1),
             DocumentOperations::Multiple(_) => None,
         }
     };
@@ -921,11 +890,10 @@ fn referenced_variables<'a>(
                 SelectionRef::FieldRef(field) => {
                     for (_, value) in &field.field.arguments {
                         for name in value.node.referenced_variables() {
-                            if let Some((value, definition)) = variables.get(name).zip(
-                                variable_definitions
-                                    .iter()
-                                    .find(|d| d.node.name.node.as_str() == name),
-                            ) {
+                            if let Some((value, definition)) = variables
+                                .get(name)
+                                .zip(variable_definitions.iter().find(|d| d.node.name.node.as_str() == name))
+                            {
                                 variables_ref.variables.insert(name, value);
                                 variables_definition_ref.insert(name, &definition.node);
                             } else {
@@ -941,11 +909,10 @@ fn referenced_variables<'a>(
                     for dir in &field.field.directives {
                         for (_, value) in &dir.node.arguments {
                             for name in value.node.referenced_variables() {
-                                if let Some((value, definition)) = variables.get(name).zip(
-                                    variable_definitions
-                                        .iter()
-                                        .find(|d| d.node.name.node.as_str() == name),
-                                ) {
+                                if let Some((value, definition)) = variables
+                                    .get(name)
+                                    .zip(variable_definitions.iter().find(|d| d.node.name.node.as_str() == name))
+                                {
                                     variables_ref.variables.insert(name, value);
                                     variables_definition_ref.insert(name, &definition.node);
                                 } else {
@@ -965,7 +932,7 @@ fn referenced_variables<'a>(
                         variables_ref,
                         variables_definition_ref,
                     )
-                }
+                },
 
                 SelectionRef::InlineFragment { selection_set, .. } => referenced_variables_rec(
                     selection_set,
@@ -974,7 +941,7 @@ fn referenced_variables<'a>(
                     variables_ref,
                     variables_definition_ref,
                 ),
-                _ => {}
+                _ => {},
             }
         }
     }
@@ -988,15 +955,9 @@ fn referenced_variables<'a>(
         &mut variables_ref,
         &mut variable_definition_ref,
     );
-    (
-        variables_ref,
-        VariableDefinitionsRef {
-            variables: variable_definition_ref
-                .into_iter()
-                .map(|(_, value)| value)
-                .collect(),
-        },
-    )
+    (variables_ref, VariableDefinitionsRef {
+        variables: variable_definition_ref.into_iter().map(|(_, value)| value).collect(),
+    })
 }
 
 #[inline]

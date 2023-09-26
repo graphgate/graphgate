@@ -1,21 +1,32 @@
-use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+    sync::Arc,
+};
 
 use anyhow::Result;
-use futures_util::stream::{SplitSink, SplitStream};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{
+    stream::{SplitSink, SplitStream},
+    SinkExt,
+    StreamExt,
+};
 use graphgate_planner::{Request, Response};
 use http::{HeaderMap, Request as HttpRequest};
-use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot};
-use tokio::time::Duration;
-use tokio_tungstenite::tungstenite::protocol::CloseFrame;
-use tokio_tungstenite::tungstenite::{Message, Result as WsResult};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tokio::{
+    net::TcpStream,
+    sync::{mpsc, oneshot},
+    time::Duration,
+};
+use tokio_tungstenite::{
+    tungstenite::{protocol::CloseFrame, Message, Result as WsResult},
+    MaybeTlsStream,
+    WebSocketStream,
+};
 
-use super::grouped_stream::{GroupedStream, StreamEvent};
-use super::protocol::{ClientMessage, Protocols, ServerMessage};
+use super::{
+    grouped_stream::{GroupedStream, StreamEvent},
+    protocol::{ClientMessage, Protocols, ServerMessage},
+};
 use crate::ServiceRouteTable;
 
 const CONNECT_TIMEOUT_SECONDS: u64 = 5;
@@ -85,15 +96,11 @@ impl WebSocketController {
         {
             anyhow::bail!("Connection closed.");
         }
-        rx_reply
-            .await
-            .map_err(|_| anyhow::anyhow!("Connection closed."))?
+        rx_reply.await.map_err(|_| anyhow::anyhow!("Connection closed."))?
     }
 
     pub async fn stop(&self, id: impl Into<String>) {
-        self.tx_command
-            .send(Command::Stop(StopCommand { id: id.into() }))
-            .ok();
+        self.tx_command.send(Command::Stop(StopCommand { id: id.into() })).ok();
     }
 }
 
@@ -148,9 +155,10 @@ impl WebSocketContext {
         service: &str,
     ) -> Result<(WebSocketStream<MaybeTlsStream<TcpStream>>, Protocols)> {
         const PROTOCOLS: &str = "graphql-ws, graphql-transport-ws";
-        let route = self.route_table.get(service).ok_or_else(|| {
-            anyhow::anyhow!("Service '{}' is not defined in the routing table.", service)
-        })?;
+        let route = self
+            .route_table
+            .get(service)
+            .ok_or_else(|| anyhow::anyhow!("Service '{}' is not defined in the routing table.", service))?;
         let scheme = match route.tls {
             true => "wss",
             false => "ws",
@@ -173,8 +181,7 @@ impl WebSocketContext {
             .headers()
             .get("Sec-WebSocket-Protocol")
             .and_then(|value| value.to_str().ok())
-            .map(|value| Protocols::from_str(value).ok())
-            .flatten()
+            .and_then(|value| Protocols::from_str(value).ok())
             .ok_or_else(|| anyhow::anyhow!("Unknown protocol: {}", url))?;
 
         stream
@@ -223,18 +230,15 @@ impl WebSocketContext {
                 Err(err) => {
                     command.reply.send(Err(err)).ok();
                     return;
-                }
+                },
             };
             let (sink, stream) = stream.split();
             self.upstream.insert(command.service.clone(), stream);
-            self.upstream_info.insert(
-                command.service.clone(),
-                UpstreamInfo {
-                    protocol,
-                    sink,
-                    subscribe_count: 0,
-                },
-            );
+            self.upstream_info.insert(command.service.clone(), UpstreamInfo {
+                protocol,
+                sink,
+                subscribe_count: 0,
+            });
         }
 
         if let Some(info) = self.upstream_info.get_mut(&command.service) {
@@ -244,26 +248,18 @@ impl WebSocketContext {
                 Some(subscribe_info) => {
                     assert!(!subscribe_info.services.contains(&command.service));
                     subscribe_info.services.insert(command.service.clone());
-                }
+                },
                 None => {
-                    self.subscribes.insert(
-                        command.id.clone(),
-                        SubscribeInfo {
-                            services: std::iter::once(command.service.clone()).collect(),
-                            tx: command.tx,
-                        },
-                    );
-                }
+                    self.subscribes.insert(command.id.clone(), SubscribeInfo {
+                        services: std::iter::once(command.service.clone()).collect(),
+                        tx: command.tx,
+                    });
+                },
             }
 
             info.sink
                 .send(Message::text(
-                    serde_json::to_string(
-                        &info
-                            .protocol
-                            .subscribe_message(&command.id, command.payload),
-                    )
-                    .unwrap(),
+                    serde_json::to_string(&info.protocol.subscribe_message(&command.id, command.payload)).unwrap(),
                 ))
                 .await
                 .ok();
@@ -305,20 +301,20 @@ impl WebSocketContext {
                                 self.finish_subscribe(id);
                             }
                         }
-                    }
+                    },
                     ServerMessage::Complete { id } => {
                         self.finish_subscribe(id);
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
                 true
-            }
+            },
             StreamEvent::Data(service, Ok(Message::Ping(data))) => {
                 if let Some(info) = self.upstream_info.get_mut(&service) {
                     info.sink.send(Message::Pong(data)).await.ok();
                 }
                 true
-            }
+            },
             StreamEvent::Data(_, Ok(_)) => true,
             StreamEvent::Data(_, Err(_)) | StreamEvent::Complete(_) => false,
         }

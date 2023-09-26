@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
-use parser::types::{Field, Selection, SelectionSet};
-use parser::Positioned;
+use parser::{
+    types::{Field, Selection, SelectionSet},
+    Positioned,
+};
 
 use crate::{Visitor, VisitorContext};
 
@@ -9,11 +11,7 @@ use crate::{Visitor, VisitorContext};
 pub struct OverlappingFieldsCanBeMerged;
 
 impl<'a> Visitor<'a> for OverlappingFieldsCanBeMerged {
-    fn enter_selection_set(
-        &mut self,
-        ctx: &mut VisitorContext<'a>,
-        selection_set: &'a Positioned<SelectionSet>,
-    ) {
+    fn enter_selection_set(&mut self, ctx: &mut VisitorContext<'a>, selection_set: &'a Positioned<SelectionSet>) {
         let mut find_conflicts = FindConflicts {
             outputs: Default::default(),
             ctx,
@@ -38,18 +36,16 @@ impl<'a, 'ctx> FindConflicts<'a, 'ctx> {
                         .as_ref()
                         .map(|name| &name.node)
                         .unwrap_or_else(|| &field.node.name.node);
-                    self.add_output(&output_name, field);
-                }
+                    self.add_output(output_name, field);
+                },
                 Selection::InlineFragment(inline_fragment) => {
                     self.find(&inline_fragment.node.selection_set);
-                }
+                },
                 Selection::FragmentSpread(fragment_spread) => {
-                    if let Some(fragment) =
-                        self.ctx.fragment(&fragment_spread.node.fragment_name.node)
-                    {
+                    if let Some(fragment) = self.ctx.fragment(&fragment_spread.node.fragment_name.node) {
                         self.find(&fragment.node.selection_set);
                     }
-                }
+                },
             }
         }
     }
@@ -59,23 +55,37 @@ impl<'a, 'ctx> FindConflicts<'a, 'ctx> {
             if prev_field.node.name.node != field.node.name.node {
                 self.ctx.report_error(
                     vec![prev_field.pos, field.pos],
-                    format!("Fields \"{}\" conflict because \"{}\" and \"{}\" are different fields. Use different aliases on the fields to fetch both if this was intentional.",
-                            name, prev_field.node.name.node, field.node.name.node));
+                    format!(
+                        "Fields \"{}\" conflict because \"{}\" and \"{}\" are different fields. Use different aliases \
+                         on the fields to fetch both if this was intentional.",
+                        name, prev_field.node.name.node, field.node.name.node
+                    ),
+                );
             }
 
             // check arguments
             if prev_field.node.arguments.len() != field.node.arguments.len() {
                 self.ctx.report_error(
                     vec![prev_field.pos, field.pos],
-                    format!("Fields \"{}\" conflict because they have differing arguments. Use different aliases on the fields to fetch both if this was intentional.", name));
+                    format!(
+                        "Fields \"{}\" conflict because they have differing arguments. Use different aliases on the \
+                         fields to fetch both if this was intentional.",
+                        name
+                    ),
+                );
             }
 
             for (name, value) in &prev_field.node.arguments {
                 match field.node.get_argument(&name.node) {
-                    Some(other_value) if value == other_value => {}
-                    _=> self.ctx.report_error(
+                    Some(other_value) if value == other_value => {},
+                    _ => self.ctx.report_error(
                         vec![prev_field.pos, field.pos],
-                        format!("Fields \"{}\" conflict because they have differing arguments. Use different aliases on the fields to fetch both if this was intentional.", name)),
+                        format!(
+                            "Fields \"{}\" conflict because they have differing arguments. Use different aliases on \
+                             the fields to fetch both if this was intentional.",
+                            name
+                        ),
+                    ),
                 }
             }
         } else {

@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use parser::types::{ExecutableDocument, FragmentDefinition, FragmentSpread};
-use parser::{Pos, Positioned};
+use parser::{
+    types::{ExecutableDocument, FragmentDefinition, FragmentSpread},
+    Pos,
+    Positioned,
+};
 use value::Name;
 
 use crate::{RuleError, Visitor, VisitorContext};
@@ -27,11 +30,7 @@ impl<'a> CycleDetector<'a> {
             let index = self.path_indices.get(name).cloned();
 
             if let Some(index) = index {
-                let err_pos = if index < path.len() {
-                    path[index].1
-                } else {
-                    *pos
-                };
+                let err_pos = if index < path.len() { path[index].1 } else { *pos };
 
                 self.errors.push(RuleError {
                     locations: vec![err_pos],
@@ -101,11 +100,8 @@ impl<'a> Visitor<'a> for NoFragmentCycles<'a> {
         if let Some(current_fragment) = self.current_fragment {
             self.spreads
                 .entry(current_fragment)
-                .or_insert_with(Vec::new)
-                .push((
-                    &fragment_spread.node.fragment_name.node,
-                    fragment_spread.pos,
-                ));
+                .or_default()
+                .push((&fragment_spread.node.fragment_name.node, fragment_spread.pos));
         }
     }
 }

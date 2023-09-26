@@ -4,11 +4,7 @@ use indexmap::IndexMap;
 use value::{ConstValue, Name};
 
 pub trait Resolver {
-    fn resolve(
-        &self,
-        selection_set: &IntrospectionSelectionSet,
-        schema: &ComposedSchema,
-    ) -> ConstValue;
+    fn resolve(&self, selection_set: &IntrospectionSelectionSet, schema: &ComposedSchema) -> ConstValue;
 }
 
 pub fn resolve_obj(
@@ -20,11 +16,7 @@ pub fn resolve_obj(
         if is_skip(&field.directives) {
             continue;
         }
-        let key = field
-            .alias
-            .as_ref()
-            .cloned()
-            .unwrap_or_else(|| field.name.clone());
+        let key = field.alias.as_ref().cloned().unwrap_or_else(|| field.name.clone());
         obj.insert(key, resolve_fn(field.name.as_str(), field));
     }
     ConstValue::Object(obj)
@@ -32,7 +24,7 @@ pub fn resolve_obj(
 
 fn is_skip(directives: &[IntrospectionDirective]) -> bool {
     for directive in directives {
-        let include = match &*directive.name.as_str() {
+        let include = match directive.name.as_str() {
             "skip" => false,
             "include" => true,
             _ => continue,

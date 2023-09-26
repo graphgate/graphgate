@@ -1,14 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use graphgate_schema::ValueExt;
-use parser::types::{
-    ExecutableDocument, FragmentDefinition, FragmentSpread, OperationDefinition, VariableDefinition,
+use parser::{
+    types::{ExecutableDocument, FragmentDefinition, FragmentSpread, OperationDefinition, VariableDefinition},
+    Pos,
+    Positioned,
 };
-use parser::{Pos, Positioned};
 use value::{Name, Value};
 
-use crate::utils::Scope;
-use crate::{Visitor, VisitorContext};
+use crate::{utils::Scope, Visitor, VisitorContext};
 
 #[derive(Default)]
 pub struct NoUnusedVariables<'a> {
@@ -64,10 +64,7 @@ impl<'a> Visitor<'a> for NoUnusedVariables<'a> {
                 if let Some(op_name) = op_name {
                     ctx.report_error(
                         vec![*pos],
-                        format!(
-                            r#"Variable "${}" is not used by operation "{}""#,
-                            var, op_name
-                        ),
+                        format!(r#"Variable "${}" is not used by operation "{}""#, var, op_name),
                     );
                 } else {
                     ctx.report_error(vec![*pos], format!(r#"Variable "${}" is not used"#, var));
@@ -117,7 +114,7 @@ impl<'a> Visitor<'a> for NoUnusedVariables<'a> {
         if let Some(ref scope) = self.current_scope {
             self.used_variables
                 .entry(*scope)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .extend(value.node.referenced_variables());
         }
     }
@@ -130,7 +127,7 @@ impl<'a> Visitor<'a> for NoUnusedVariables<'a> {
         if let Some(ref scope) = self.current_scope {
             self.spreads
                 .entry(*scope)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(&fragment_spread.node.fragment_name.node);
         }
     }

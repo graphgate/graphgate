@@ -1,10 +1,13 @@
-use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
+use std::{
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+};
 
 use futures_util::TryFutureExt;
 use graphgate_planner::{Request, Response};
 use http::HeaderMap;
 use once_cell::sync::Lazy;
+use tracing::instrument;
 
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(Default::default);
 
@@ -52,17 +55,19 @@ impl DerefMut for ServiceRouteTable {
 
 impl ServiceRouteTable {
     /// Call the GraphQL query of the specified service.
+    #[instrument(err(Debug), ret, level = "trace")]
     pub async fn query(
         &self,
-        service: impl AsRef<str>,
+        service: impl AsRef<str> + std::fmt::Debug,
         request: Request,
         header_map: Option<&HeaderMap>,
         introspection: Option<bool>,
     ) -> anyhow::Result<Response> {
         let service = service.as_ref();
-        let route = self.0.get(service).ok_or_else(|| {
-            anyhow::anyhow!("Service '{}' is not defined in the routing table.", service)
-        })?;
+        let route = self
+            .0
+            .get(service)
+            .ok_or_else(|| anyhow::anyhow!("Service '{}' is not defined in the routing table.", service))?;
 
         let introspection = introspection.unwrap_or(false);
 
@@ -97,13 +102,10 @@ impl ServiceRouteTable {
             match headers.get_mut(key.as_str()) {
                 Some(x) => {
                     x.push(val.to_str().unwrap().to_string());
-                }
+                },
                 None => {
-                    headers.insert(
-                        key.as_str().to_string(),
-                        vec![val.to_str().unwrap().to_string()],
-                    );
-                }
+                    headers.insert(key.as_str().to_string(), vec![val.to_str().unwrap().to_string()]);
+                },
             }
         }
 

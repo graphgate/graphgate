@@ -1,19 +1,19 @@
 [package]
 name = "graphgate-handler"
-version = "0.5.1"
-authors = ["Sunli <scott_s829@163.com>"]
-edition = "2018"
-description = "GraphGate is Apollo Federation implemented in Rust"
-license = "MIT/Apache-2.0"
-homepage = "https://github.com/async-graphql/graphgate"
-repository = "https://github.com/async-graphql/graphgate"
-keywords = ["gateway", "graphql", "federation"]
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
 
 [dependencies]
-graphgate-schema = { version = "0.5.0", path = "../schema" }
-graphgate-planner = { version = "0.5.0", path = "../planner" }
+graphgate-schema = { path = "../schema" }
+graphgate-planner = { path = "../planner" }
 
-warp = "0.3.2"
+warp = "0.3.5"
 indexmap = { version = "1.8.0", features = ["serde-1"] }
 futures-util = { version = "0.3.19", features = ["sink"] }
 parser = { version = "3.0.24", package = "async-graphql-parser" }

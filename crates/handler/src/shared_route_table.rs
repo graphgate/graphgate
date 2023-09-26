@@ -4,17 +4,20 @@ use anyhow::{Context, Error, Result};
 use graphgate_planner::{PlanBuilder, Request, Response, ServerError};
 use graphgate_schema::ComposedSchema;
 use http::{header::HeaderName, HeaderValue};
-use opentelemetry::trace::{TraceContextExt, Tracer};
-use opentelemetry::{global, Context as OpenTelemetryContext};
+use opentelemetry::{
+    global,
+    trace::{TraceContextExt, Tracer},
+    Context as OpenTelemetryContext,
+};
 use serde::Deserialize;
-use tokio::sync::{mpsc, RwLock};
-use tokio::time::{Duration, Instant};
+use tokio::{
+    sync::{mpsc, RwLock},
+    time::{Duration, Instant},
+};
 use value::ConstValue;
 use warp::http::{HeaderMap, Response as HttpResponse, StatusCode};
 
-use crate::executor::Executor;
-use crate::fetcher::HttpFetcher;
-use crate::service_route::ServiceRouteTable;
+use crate::{executor::Executor, fetcher::HttpFetcher, service_route::ServiceRouteTable};
 
 enum Command {
     Change(ServiceRouteTable),
@@ -53,10 +56,8 @@ impl Default for SharedRouteTable {
 
 impl SharedRouteTable {
     async fn update_loop(self, mut rx: mpsc::UnboundedReceiver<Command>) {
-        let mut update_interval = tokio::time::interval_at(
-            Instant::now() + Duration::from_secs(3),
-            Duration::from_secs(30),
-        );
+        let mut update_interval =
+            tokio::time::interval_at(Instant::now() + Duration::from_secs(3), Duration::from_secs(30));
 
         loop {
             tokio::select! {
@@ -106,8 +107,7 @@ impl SharedRouteTable {
                     .query(service, Request::new(QUERY_SDL), None, Some(true))
                     .await
                     .with_context(|| format!("Failed to fetch SDL from '{}'.", service))?;
-                let resp: ResponseQuery =
-                    value::from_value(resp.data).context("Failed to parse response.")?;
+                let resp: ResponseQuery = value::from_value(resp.data).context("Failed to parse response.")?;
                 let document = parser::parse_schema(resp.service.sdl)
                     .with_context(|| format!("Invalid SDL from '{}'.", service))?;
                 Ok::<_, Error>((service.to_string(), document))
@@ -146,7 +146,7 @@ impl SharedRouteTable {
                     .status(StatusCode::BAD_REQUEST)
                     .body(err.to_string())
                     .unwrap();
-            }
+            },
         };
 
         let (composed_schema, route_table) = match self.get().await {
@@ -164,11 +164,10 @@ impl SharedRouteTable {
                         .unwrap(),
                     )
                     .unwrap();
-            }
+            },
         };
 
-        let mut plan_builder =
-            PlanBuilder::new(&composed_schema, document).variables(request.variables);
+        let mut plan_builder = PlanBuilder::new(&composed_schema, document).variables(request.variables);
         if let Some(operation) = request.operation {
             plan_builder = plan_builder.operation_name(operation);
         }
@@ -180,12 +179,12 @@ impl SharedRouteTable {
                     .status(StatusCode::OK)
                     .body(serde_json::to_string(&response).unwrap())
                     .unwrap();
-            }
+            },
         };
 
         let executor = Executor::new(&composed_schema);
         let resp = opentelemetry::trace::FutureExt::with_context(
-            executor.execute_query(&HttpFetcher::new(&*route_table, &header_map), &plan),
+            executor.execute_query(&HttpFetcher::new(&route_table, &header_map), &plan),
             OpenTelemetryContext::current_with_span(tracer.span_builder("execute").start(&tracer)),
         )
         .await;
@@ -194,26 +193,19 @@ impl SharedRouteTable {
 
         let mut header_map = HeaderMap::new();
 
-        match resp.headers.clone() {
-            Some(x) => {
-                for (k, v) in x
-                    .into_iter()
-                    .filter(|(k, _v)| self.receive_headers.contains(k))
-                {
-                    for val in v {
-                        header_map.append(
-                            HeaderName::from_bytes(k.as_bytes()).unwrap(),
-                            HeaderValue::from_str(&val).unwrap(),
-                        );
-                    }
+        if let Some(x) = resp.headers.clone() {
+            for (k, v) in x.into_iter().filter(|(k, _v)| self.receive_headers.contains(k)) {
+                for val in v {
+                    header_map.append(
+                        HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                        HeaderValue::from_str(&val).unwrap(),
+                    );
                 }
             }
-            _ => {}
         }
 
-        match builder.headers_mut() {
-            Some(x) => x.extend(header_map),
-            None => {}
+        if let Some(x) = builder.headers_mut() {
+            x.extend(header_map)
         }
 
         builder.body(serde_json::to_string(&resp).unwrap()).unwrap()

@@ -1,7 +1,9 @@
 use graphgate_schema::{ComposedSchema, TypeKind};
 use parser::types::{BaseType, Type};
-use std::collections::HashSet;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::{
+    collections::HashSet,
+    fmt::{Display, Formatter, Result as FmtResult},
+};
 use value::{ConstValue, Name};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -79,11 +81,10 @@ pub fn is_valid_input_value(
     ) -> Option<String> {
         match &base_ty {
             BaseType::List(element_ty) => match value {
-                ConstValue::List(elements) => {
-                    elements.iter().enumerate().find_map(|(idx, elem)| {
-                        is_valid_input_value(schema, element_ty, elem, path_node.index(idx))
-                    })
-                }
+                ConstValue::List(elements) => elements
+                    .iter()
+                    .enumerate()
+                    .find_map(|(idx, elem)| is_valid_input_value(schema, element_ty, elem, path_node.index(idx))),
                 ConstValue::Null => None,
                 _ => is_valid_input_value(schema, element_ty, value, path_node),
             },
@@ -97,12 +98,9 @@ pub fn is_valid_input_value(
                             if is_valid_scalar_value(ty.name.as_str(), value) {
                                 None
                             } else {
-                                Some(valid_error(
-                                    &path_node,
-                                    format!("expected type \"{}\"", type_name),
-                                ))
+                                Some(valid_error(&path_node, format!("expected type \"{}\"", type_name)))
                             }
-                        }
+                        },
                         TypeKind::Enum => {
                             if let ConstValue::Enum(value) = value {
                                 if !ty.enum_values.contains_key(value) {
@@ -117,7 +115,7 @@ pub fn is_valid_input_value(
                                     None
                                 }
                             } else if let ConstValue::String(v) = value {
-                                if ty.enum_values.contains_key(&Name::new(v.to_string())) {
+                                if ty.enum_values.contains_key(&Name::new(v)) {
                                     None
                                 } else {
                                     Some(valid_error(
@@ -125,16 +123,13 @@ pub fn is_valid_input_value(
                                         format!(
                                             "enumeration type \"{}\" does not contain the value \"{}\"",
                                             ty.name, value
-                                        )
+                                        ),
                                     ))
                                 }
                             } else {
-                                Some(valid_error(
-                                    &path_node,
-                                    format!("expected type \"{}\"", type_name),
-                                ))
+                                Some(valid_error(&path_node, format!("expected type \"{}\"", type_name)))
                             }
-                        }
+                        },
                         TypeKind::InputObject => {
                             if let ConstValue::Object(values) = value {
                                 let mut input_names = values.keys().collect::<HashSet<_>>();
@@ -164,27 +159,21 @@ pub fn is_valid_input_value(
                                 if let Some(name) = input_names.iter().next() {
                                     return Some(valid_error(
                                         &path_node,
-                                        format!(
-                                            "unknown field \"{}\" of type \"{}\"",
-                                            name, ty.name
-                                        ),
+                                        format!("unknown field \"{}\" of type \"{}\"", name, ty.name),
                                     ));
                                 }
 
                                 None
                             } else {
-                                Some(valid_error(
-                                    &path_node,
-                                    format!("expected type \"{}\"", type_name),
-                                ))
+                                Some(valid_error(&path_node, format!("expected type \"{}\"", type_name)))
                             }
-                        }
+                        },
                         _ => None,
                     }
                 } else {
                     None
                 }
-            }
+            },
         }
     }
     if !ty.nullable {

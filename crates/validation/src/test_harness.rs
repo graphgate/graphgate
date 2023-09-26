@@ -3,8 +3,10 @@ use once_cell::sync::Lazy;
 use parser::types::ExecutableDocument;
 use value::Variables;
 
-use crate::visitor::{visit, Visitor, VisitorContext};
-use crate::RuleError;
+use crate::{
+    visitor::{visit, Visitor, VisitorContext},
+    RuleError,
+};
 
 static SCHEMA: Lazy<ComposedSchema> =
     Lazy::new(|| ComposedSchema::parse(include_str!("test_harness.graphql")).unwrap());
@@ -18,7 +20,7 @@ where
     V: Visitor<'a> + 'a,
     F: Fn() -> V,
 {
-    let mut ctx = VisitorContext::new(&*SCHEMA, doc, variables);
+    let mut ctx = VisitorContext::new(&SCHEMA, doc, variables);
     let mut visitor = factory();
     visit(&mut visitor, &mut ctx, doc);
     if ctx.errors.is_empty() {
@@ -28,11 +30,8 @@ where
     }
 }
 
-pub fn expect_passes_rule_<'a, V, F>(
-    doc: &'a ExecutableDocument,
-    variables: &'a Variables,
-    factory: F,
-) where
+pub fn expect_passes_rule_<'a, V, F>(doc: &'a ExecutableDocument, variables: &'a Variables, factory: F)
+where
     V: Visitor<'a> + 'a,
     F: Fn() -> V,
 {
@@ -55,11 +54,8 @@ macro_rules! expect_passes_rule {
     };
 }
 
-pub fn expect_fails_rule_<'a, V, F>(
-    doc: &'a ExecutableDocument,
-    variables: &'a Variables,
-    factory: F,
-) where
+pub fn expect_fails_rule_<'a, V, F>(doc: &'a ExecutableDocument, variables: &'a Variables, factory: F)
+where
     V: Visitor<'a> + 'a,
     F: Fn() -> V,
 {
