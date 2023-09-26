@@ -1,20 +1,20 @@
-use std::convert::{Infallible, TryInto};
-use std::net::SocketAddr;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{
+    convert::{Infallible, TryInto},
+    net::SocketAddr,
+    str::FromStr,
+    sync::Arc,
+};
 
 use graphgate_planner::Request;
-use http::header::HeaderName;
-use http::HeaderMap;
-use opentelemetry::trace::{FutureExt, TraceContextExt, Tracer};
-use opentelemetry::{global, Context};
-use warp::http::Response as HttpResponse;
-use warp::ws::Ws;
-use warp::{Filter, Rejection, Reply};
+use http::{header::HeaderName, HeaderMap};
+use opentelemetry::{
+    global,
+    trace::{FutureExt, TraceContextExt, Tracer},
+    Context,
+};
+use warp::{http::Response as HttpResponse, ws::Ws, Filter, Rejection, Reply};
 
-use crate::constants::*;
-use crate::metrics::METRICS;
-use crate::{websocket, SharedRouteTable};
+use crate::{constants::*, metrics::METRICS, websocket, SharedRouteTable};
 use std::time::Instant;
 
 #[derive(Clone)]
@@ -44,9 +44,7 @@ fn do_forward_headers<T: AsRef<str>>(
     new_header_map
 }
 
-pub fn graphql_request(
-    config: HandlerConfig,
-) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+pub fn graphql_request(config: HandlerConfig) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
     warp::post()
         .and(warp::body::json())
         .and(warp::header::headers_cloned())
@@ -62,8 +60,7 @@ pub fn graphql_request(
                             .span_builder("query")
                             .with_attributes(vec![
                                 KEY_QUERY.string(request.query.clone()),
-                                KEY_VARIABLES
-                                    .string(serde_json::to_string(&request.variables).unwrap()),
+                                KEY_VARIABLES.string(serde_json::to_string(&request.variables).unwrap()),
                             ])
                             .start(&tracer),
                     );
@@ -89,9 +86,7 @@ pub fn graphql_request(
         })
 }
 
-pub fn graphql_websocket(
-    config: HandlerConfig,
-) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+pub fn graphql_websocket(config: HandlerConfig) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
     warp::ws()
         .and(warp::get())
         .and(warp::header::exact_ignore_case("upgrade", "websocket"))
@@ -108,35 +103,21 @@ pub fn graphql_websocket(
                             .find_map(|p| websocket::Protocols::from_str(p.trim()).ok())
                     })
                     .unwrap_or(websocket::Protocols::SubscriptionsTransportWS);
-                let header_map =
-                    do_forward_headers(&config.forward_headers, &header_map, remote_addr);
+                let header_map = do_forward_headers(&config.forward_headers, &header_map, remote_addr);
 
                 let reply = ws.on_upgrade(move |websocket| async move {
-                    if let Some((composed_schema, route_table)) =
-                        config.shared_route_table.get().await
-                    {
-                        websocket::server(
-                            composed_schema,
-                            route_table,
-                            websocket,
-                            protocol,
-                            header_map,
-                        )
-                        .await;
+                    if let Some((composed_schema, route_table)) = config.shared_route_table.get().await {
+                        websocket::server(composed_schema, route_table, websocket, protocol, header_map).await;
                     }
                 });
 
-                warp::reply::with_header(
-                    reply,
-                    "Sec-WebSocket-Protocol",
-                    protocol.sec_websocket_protocol(),
-                )
+                warp::reply::with_header(reply, "Sec-WebSocket-Protocol", protocol.sec_websocket_protocol())
             }
         })
 }
 
-pub fn graphql_playground() -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
-    warp::get().map(|| {
+pub fn graphql_playground(path: String) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    warp::path(path).and(warp::get()).map(|| {
         HttpResponse::builder()
             .header("content-type", "text/html")
             .body(include_str!("playground.html"))

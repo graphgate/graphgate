@@ -10,7 +10,8 @@ repository.workspace = true
 keywords.workspace = true
 
 [dependencies]
-parser = { version = "3.0.24", package = "async-graphql-parser" }
-value = { version = "3.0.24", package = "async-graphql-value" }
-thiserror = "1.0.30"
 indexmap = { version = "1.8.0", features = ["serde-1"] }
+parser = { version = "3.0.24", package = "async-graphql-parser" }
+thiserror = "1.0.30"
+tracing = "0.1.37"
+value = { version = "3.0.24", package = "async-graphql-value" }

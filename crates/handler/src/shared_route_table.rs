@@ -14,6 +14,7 @@ use tokio::{
     sync::{mpsc, RwLock},
     time::{Duration, Instant},
 };
+use tracing::instrument;
 use value::ConstValue;
 use warp::http::{HeaderMap, Response as HttpResponse, StatusCode};
 
@@ -81,6 +82,7 @@ impl SharedRouteTable {
         }
     }
 
+    #[instrument(err(Debug), skip(self), ret, level = "trace")]
     async fn update(&self) -> Result<()> {
         const QUERY_SDL: &str = "{ _service { sdl }}";
 

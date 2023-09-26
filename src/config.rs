@@ -1,10 +1,14 @@
 use graphgate_handler::{ServiceRoute, ServiceRouteTable};
 use serde::Deserialize;
+use tracing::instrument;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
     #[serde(default = "default_bind")]
     pub bind: String,
+
+    #[serde(default)]
+    pub path: String,
 
     #[serde(default)]
     pub gateway_name: String,
@@ -64,20 +68,18 @@ pub struct JaegerConfig {
 }
 
 impl Config {
+    #[instrument(ret, level = "trace")]
     pub fn create_route_table(&self) -> ServiceRouteTable {
         let mut route_table = ServiceRouteTable::default();
         for service in &self.services {
-            route_table.insert(
-                service.name.clone(),
-                ServiceRoute {
-                    addr: service.addr.clone(),
-                    tls: service.tls,
-                    query_path: service.query_path.clone(),
-                    subscribe_path: service.subscribe_path.clone(),
-                    introspection_path: service.introspection_path.clone(),
-                    websocket_path: service.default_or_set_websocket_path(),
-                },
-            );
+            route_table.insert(service.name.clone(), ServiceRoute {
+                addr: service.addr.clone(),
+                tls: service.tls,
+                query_path: service.query_path.clone(),
+                subscribe_path: service.subscribe_path.clone(),
+                introspection_path: service.introspection_path.clone(),
+                websocket_path: service.default_or_set_websocket_path(),
+            });
         }
         route_table
     }

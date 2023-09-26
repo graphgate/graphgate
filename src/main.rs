@@ -4,27 +4,18 @@ mod config;
 mod k8s;
 mod options;
 
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
 use futures_util::FutureExt;
-use graphgate_handler::handler::HandlerConfig;
-use graphgate_handler::{handler, SharedRouteTable};
-use opentelemetry::global;
-use opentelemetry::global::GlobalTracerProvider;
-use opentelemetry::trace::noop::NoopTracerProvider;
+use graphgate_handler::{handler, handler::HandlerConfig, SharedRouteTable};
+use opentelemetry::{global, global::GlobalTracerProvider, trace::noop::NoopTracerProvider};
 use opentelemetry_prometheus::PrometheusExporter;
 use prometheus::{Encoder, TextEncoder};
 use structopt::StructOpt;
-use tokio::signal;
-use tokio::time::Duration;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{fmt, EnvFilter};
-use warp::http::Response as HttpResponse;
-use warp::hyper::StatusCode;
-use warp::{Filter, Rejection, Reply};
+use tokio::{signal, time::Duration};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use warp::{http::Response as HttpResponse, hyper::StatusCode, Filter, Rejection, Reply};
 
 use config::Config;
 use options::Options;
@@ -55,10 +46,10 @@ async fn update_route_table_in_k8s(shared_route_table: SharedRouteTable, gateway
                     shared_route_table.set_route_table(route_table.clone());
                     prev_route_table = Some(route_table);
                 }
-            }
+            },
             Err(err) => {
                 tracing::error!(error = %err, "Failed to find graphql services.");
-            }
+            },
         }
 
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -79,18 +70,16 @@ fn init_tracer(config: &Config) -> Result<GlobalTracerProvider> {
                 .build_batch(opentelemetry::runtime::Tokio)
                 .context("Failed to initialize jaeger.")?;
             global::set_tracer_provider(provider)
-        }
+        },
         None => {
             let provider = NoopTracerProvider::new();
             global::set_tracer_provider(provider)
-        }
+        },
     };
     Ok(uninstall)
 }
 
-pub fn metrics(
-    exporter: PrometheusExporter,
-) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+pub fn metrics(exporter: PrometheusExporter) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
     warp::path!("metrics").and(warp::get()).map({
         move || {
             let mut buffer = Vec::new();
@@ -102,10 +91,7 @@ pub fn metrics(
                     .body(err.to_string().into_bytes())
                     .unwrap();
             }
-            HttpResponse::builder()
-                .status(StatusCode::OK)
-                .body(buffer)
-                .unwrap()
+            HttpResponse::builder().status(StatusCode::OK).body(buffer).unwrap()
         }
     })
 }
@@ -180,7 +166,7 @@ async fn main() -> Result<()> {
     let graphql = warp::path::end().and(
         handler::graphql_request(handler_config.clone())
             .or(handler::graphql_websocket(handler_config.clone()))
-            .or(handler::graphql_playground()),
+            .or(handler::graphql_playground(config.path.clone())),
     );
     let health = warp::path!("health").map(|| warp::reply::json(&"healthy"));
 
@@ -190,15 +176,13 @@ async fn main() -> Result<()> {
         .context(format!("Failed to parse bind addr '{}'", config.bind))?;
     if let Some(warp_cors) = cors {
         let routes = graphql.or(health).or(metrics(exporter)).with(warp_cors);
-        let (addr, server) = warp::serve(routes)
-            .bind_with_graceful_shutdown(bind_addr, signal::ctrl_c().map(|_| ()));
+        let (addr, server) = warp::serve(routes).bind_with_graceful_shutdown(bind_addr, signal::ctrl_c().map(|_| ()));
         tracing::info!(addr = %addr, "Listening");
         server.await;
         tracing::info!("Server shutdown");
     } else {
         let routes = graphql.or(health).or(metrics(exporter));
-        let (addr, server) = warp::serve(routes)
-            .bind_with_graceful_shutdown(bind_addr, signal::ctrl_c().map(|_| ()));
+        let (addr, server) = warp::serve(routes).bind_with_graceful_shutdown(bind_addr, signal::ctrl_c().map(|_| ()));
         tracing::info!(addr = %addr, "Listening");
         server.await;
         tracing::info!("Server shutdown");

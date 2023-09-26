@@ -840,6 +840,7 @@ dependencies = [
  "async-graphql-value",
  "indexmap",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
