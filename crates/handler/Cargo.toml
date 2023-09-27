@@ -13,6 +13,7 @@ keywords.workspace = true
 graphgate-schema = { path = "../schema" }
 graphgate-planner = { path = "../planner" }
 
+async-graphql = "6.0.7"
 warp = "0.3.5"
 indexmap = { version = "1.8.0", features = ["serde-1"] }
 futures-util = { version = "0.3.19", features = ["sink"] }

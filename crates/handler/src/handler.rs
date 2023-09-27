@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use async_graphql::http::GraphiQLSource;
 use graphgate_planner::Request;
 use http::{header::HeaderName, HeaderMap};
 use opentelemetry::{
@@ -12,6 +13,7 @@ use opentelemetry::{
     trace::{FutureExt, TraceContextExt, Tracer},
     Context,
 };
+use tracing::instrument;
 use warp::{http::Response as HttpResponse, ws::Ws, Filter, Rejection, Reply};
 
 use crate::{constants::*, metrics::METRICS, websocket, SharedRouteTable};
@@ -116,10 +118,15 @@ pub fn graphql_websocket(config: HandlerConfig) -> impl Filter<Extract = (impl R
         })
 }
 
+#[instrument(level = "trace")]
 pub fn graphql_playground(path: String) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
-    warp::path(path).and(warp::get()).map(|| {
-        HttpResponse::builder()
-            .header("content-type", "text/html")
-            .body(include_str!("playground.html"))
+    let endpoint = format!("/{path}");
+    warp::get().map(move || {
+        HttpResponse::builder().header("content-type", "text/html").body(
+            GraphiQLSource::build()
+                .endpoint(endpoint.as_str())
+                .subscription_endpoint(endpoint.as_str())
+                .finish(),
+        )
     })
 }
