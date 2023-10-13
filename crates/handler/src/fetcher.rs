@@ -4,6 +4,7 @@ use anyhow::Result;
 use graphgate_planner::{Request, Response};
 use http::HeaderMap;
 use tokio::sync::mpsc;
+use tracing::instrument;
 
 use crate::{websocket::WebSocketController, ServiceRouteTable};
 
@@ -28,6 +29,7 @@ impl<'a> HttpFetcher<'a> {
 
 #[async_trait::async_trait]
 impl<'a> Fetcher for HttpFetcher<'a> {
+    #[instrument(err(Debug), skip(self), ret, level = "trace")]
     async fn query(&self, service: &str, request: Request) -> Result<Response> {
         self.router_table
             .query(service, request, Some(self.header_map), None)

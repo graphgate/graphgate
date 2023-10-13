@@ -3,7 +3,10 @@ use std::sync::Arc;
 use anyhow::{Context, Error, Result};
 use graphgate_planner::{PlanBuilder, Request, Response, ServerError};
 use graphgate_schema::ComposedSchema;
-use http::{header::HeaderName, HeaderValue};
+use http::{
+    header::{HeaderName, CONTENT_TYPE},
+    HeaderValue,
+};
 use opentelemetry::{
     global,
     trace::{TraceContextExt, Tracer},
@@ -141,6 +144,7 @@ impl SharedRouteTable {
         composed_schema.zip(route_table)
     }
 
+    #[instrument(skip(self), ret, level = "trace")]
     pub async fn query(&self, request: Request, header_map: HeaderMap) -> HttpResponse<String> {
         let tracer = global::tracer("graphql");
 
@@ -183,6 +187,7 @@ impl SharedRouteTable {
             Err(response) => {
                 return HttpResponse::builder()
                     .status(StatusCode::OK)
+                    .header(CONTENT_TYPE, "application/json")
                     .body(serde_json::to_string(&response).unwrap())
                     .unwrap();
             }
@@ -195,7 +200,9 @@ impl SharedRouteTable {
         )
         .await;
 
-        let mut builder = HttpResponse::builder().status(StatusCode::OK);
+        let mut builder = HttpResponse::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_TYPE, "application/json");
 
         let mut header_map = HeaderMap::new();
 
