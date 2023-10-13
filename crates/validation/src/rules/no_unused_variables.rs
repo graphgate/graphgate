@@ -2,9 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use graphgate_schema::ValueExt;
 use parser::{
-    types::{ExecutableDocument, FragmentDefinition, FragmentSpread, OperationDefinition, VariableDefinition},
-    Pos,
-    Positioned,
+    types::{
+        ExecutableDocument, FragmentDefinition, FragmentSpread, OperationDefinition,
+        VariableDefinition,
+    },
+    Pos, Positioned,
 };
 use value::{Name, Value};
 
@@ -64,7 +66,10 @@ impl<'a> Visitor<'a> for NoUnusedVariables<'a> {
                 if let Some(op_name) = op_name {
                     ctx.report_error(
                         vec![*pos],
-                        format!(r#"Variable "${}" is not used by operation "{}""#, var, op_name),
+                        format!(
+                            r#"Variable "${}" is not used by operation "{}""#,
+                            var, op_name
+                        ),
                     );
                 } else {
                     ctx.report_error(vec![*pos], format!(r#"Variable "${}" is not used"#, var));

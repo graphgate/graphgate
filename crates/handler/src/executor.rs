@@ -3,19 +3,8 @@ use std::collections::HashMap;
 use chrono::{DateTime, Duration, Utc};
 use futures_util::{future::BoxFuture, stream::BoxStream, StreamExt};
 use graphgate_planner::{
-    FetchNode,
-    FlattenNode,
-    IntrospectionNode,
-    ParallelNode,
-    PathSegment,
-    PlanNode,
-    Request,
-    Response,
-    ResponsePath,
-    RootNode,
-    SequenceNode,
-    ServerError,
-    SubscribeNode,
+    FetchNode, FlattenNode, IntrospectionNode, ParallelNode, PathSegment, PlanNode, Request,
+    Response, ResponsePath, RootNode, SequenceNode, ServerError, SubscribeNode,
 };
 use graphgate_schema::ComposedSchema;
 use indexmap::IndexMap;
@@ -57,7 +46,7 @@ impl<'e> Executor<'e> {
             RootNode::Query(node) => {
                 self.execute_node(fetcher, node).await;
                 self.resp.into_inner()
-            },
+            }
             RootNode::Subscribe(_) => Response {
                 data: ConstValue::Null,
                 errors: vec![ServerError {
@@ -103,7 +92,8 @@ impl<'e> Executor<'e> {
                             let attributes = vec![
                                 KEY_SERVICE.string(node.service.to_string()),
                                 KEY_QUERY.string(node.query.to_string()),
-                                KEY_VARIABLES.string(serde_json::to_string(&node.variables).unwrap()),
+                                KEY_VARIABLES
+                                    .string(serde_json::to_string(&node.variables).unwrap()),
                             ];
                             let span = tracer
                                 .span_builder(format!("subscribe [{}]", node.service))
@@ -114,7 +104,8 @@ impl<'e> Executor<'e> {
                                 .subscribe(
                                     id,
                                     node.service,
-                                    Request::new(node.query.to_string()).variables(node.variables.to_variables()),
+                                    Request::new(node.query.to_string())
+                                        .variables(node.variables.to_variables()),
                                     tx.clone(),
                                 )
                                 .with_context(cx)
@@ -122,11 +113,10 @@ impl<'e> Executor<'e> {
                         .await
                         .map(move |_| rx)
                         .map_err(|err| {
-                            Context::current()
-                                .span()
-                                .add_event("Failed to subscribe".to_string(), vec![
-                                    KEY_ERROR.string(err.to_string())
-                                ]);
+                            Context::current().span().add_event(
+                                "Failed to subscribe".to_string(),
+                                vec![KEY_ERROR.string(err.to_string())],
+                            );
                             Response {
                                 data: ConstValue::Null,
                                 errors: vec![ServerError {
@@ -167,11 +157,15 @@ impl<'e> Executor<'e> {
                         Box::pin(futures_util::stream::once(async move { response }).boxed())
                     },
                 }
-            },
+            }
         }
     }
 
-    fn execute_node<'a>(&'a self, fetcher: &'a impl Fetcher, node: &'a PlanNode<'_>) -> BoxFuture<'a, ()> {
+    fn execute_node<'a>(
+        &'a self,
+        fetcher: &'a impl Fetcher,
+        node: &'a PlanNode<'_>,
+    ) -> BoxFuture<'a, ()> {
         Box::pin(async move {
             match node {
                 PlanNode::Sequence(sequence) => self.execute_sequence_node(fetcher, sequence).await,
@@ -181,7 +175,7 @@ impl<'e> Executor<'e> {
                     self.execute_introspection_node(introspection)
                         .with_context(Context::current_with_span(tracer.start("introspection")))
                         .await
-                },
+                }
                 PlanNode::Fetch(fetch) => self.execute_fetch_node(fetcher, fetch).await,
                 PlanNode::Flatten(flatten) => self.execute_flatten_node(fetcher, flatten).await,
             }
@@ -237,7 +231,7 @@ impl<'e> Executor<'e> {
                     } else {
                         rewrite_errors(None, &mut current_resp.errors, resp.errors);
                     }
-                },
+                }
                 Err(err) => current_resp.errors.push(ServerError {
                     message: err.to_string(),
                     path: Default::default(),
@@ -264,7 +258,7 @@ impl<'e> Executor<'e> {
             let prefix = format!("__key{}_", prefix);
             if let Some(possible_type) = possible_type {
                 match from.get(format!("{}__typename", prefix).as_str()) {
-                    Some(ConstValue::String(typename)) if typename == possible_type => {},
+                    Some(ConstValue::String(typename)) if typename == possible_type => {}
                     _ => return Representation::Skip,
                 }
             }
@@ -301,23 +295,31 @@ impl<'e> Executor<'e> {
                 match value {
                     ConstValue::Object(object) if !segment.is_list => {
                         if let Some(ConstValue::Object(key_object)) = object.get_mut(segment.name) {
-                            representations.push(extract_keys(key_object, prefix, segment.possible_type));
+                            representations.push(extract_keys(
+                                key_object,
+                                prefix,
+                                segment.possible_type,
+                            ));
                         } else {
                             representations.push(Representation::Skip);
                         }
-                    },
+                    }
                     ConstValue::Object(object) if segment.is_list => {
                         if let Some(ConstValue::List(array)) = object.get_mut(segment.name) {
                             for element in array {
                                 if let ConstValue::Object(element_obj) = element {
-                                    representations.push(extract_keys(element_obj, prefix, segment.possible_type));
+                                    representations.push(extract_keys(
+                                        element_obj,
+                                        prefix,
+                                        segment.possible_type,
+                                    ));
                                 } else {
                                     representations.push(Representation::Skip);
                                 }
                             }
                         }
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
             } else {
                 match value {
@@ -327,7 +329,7 @@ impl<'e> Executor<'e> {
                         } else {
                             representations.push(Representation::Skip);
                         }
-                    },
+                    }
                     ConstValue::Object(object) if segment.is_list => {
                         if let Some(ConstValue::List(array)) = object.get_mut(segment.name) {
                             for element in array {
@@ -336,8 +338,8 @@ impl<'e> Executor<'e> {
                         } else {
                             representations.push(Representation::Skip);
                         }
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
             }
         }
@@ -363,7 +365,7 @@ impl<'e> Executor<'e> {
                                 }
                             }
                         }
-                    },
+                    }
                     ConstValue::Object(object) if segment.is_list => {
                         if let Some(ConstValue::List(array)) = object.get_mut(segment.name) {
                             for element in array {
@@ -374,8 +376,8 @@ impl<'e> Executor<'e> {
                                 }
                             }
                         }
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
             } else {
                 match target {
@@ -383,15 +385,15 @@ impl<'e> Executor<'e> {
                         if let Some(next_value) = object.get_mut(segment.name) {
                             flatten_values(next_value, &path[1..], values, flags);
                         }
-                    },
+                    }
                     ConstValue::Object(object) if segment.is_list => {
                         if let Some(ConstValue::List(array)) = object.get_mut(segment.name) {
                             for element in array {
                                 flatten_values(element, &path[1..], values, flags);
                             }
                         }
-                    },
-                    _ => {},
+                    }
+                    _ => {}
                 }
             }
         }
@@ -399,7 +401,12 @@ impl<'e> Executor<'e> {
         let (representations, flags) = {
             let mut representations = Vec::new();
             let mut resp = self.resp.lock().await;
-            get_representations(&mut representations, &mut resp.data, &flatten.path, flatten.prefix);
+            get_representations(
+                &mut representations,
+                &mut resp.data,
+                &flatten.path,
+                flatten.prefix,
+            );
             if representations.is_empty() {
                 return;
             }
@@ -412,7 +419,7 @@ impl<'e> Executor<'e> {
                     Representation::Keys(value) => {
                         values.push(value);
                         flags.push(true);
-                    },
+                    }
                     Representation::Skip => flags.push(false),
                 }
             }
@@ -456,7 +463,7 @@ impl<'e> Executor<'e> {
                     } else {
                         rewrite_errors(Some(&flatten.path), &mut current_resp.errors, resp.errors);
                     }
-                },
+                }
                 Err(err) => {
                     current_resp.errors.push(ServerError {
                         message: err.to_string(),
@@ -464,7 +471,7 @@ impl<'e> Executor<'e> {
                         locations: Default::default(),
                         extensions: Default::default(),
                     });
-                },
+                }
             }
         }
         .with_context(cx)
@@ -481,20 +488,26 @@ fn merge_data(target: &mut ConstValue, value: ConstValue) {
                     Some(target) => merge_data(target, value),
                     None => {
                         object.insert(key, value);
-                    },
+                    }
                 }
             }
-        },
-        (ConstValue::List(array), ConstValue::List(fragment_array)) if array.len() == fragment_array.len() => {
+        }
+        (ConstValue::List(array), ConstValue::List(fragment_array))
+            if array.len() == fragment_array.len() =>
+        {
             for (idx, element) in fragment_array.into_iter().enumerate() {
                 merge_data(&mut array[idx], element);
             }
-        },
-        _ => {},
+        }
+        _ => {}
     }
 }
 
-fn rewrite_errors(prefix_path: Option<&ResponsePath<'_>>, target: &mut Vec<ServerError>, errors: Vec<ServerError>) {
+fn rewrite_errors(
+    prefix_path: Option<&ResponsePath<'_>>,
+    target: &mut Vec<ServerError>,
+    errors: Vec<ServerError>,
+) {
     for mut err in errors {
         let mut path = Vec::new();
 
@@ -511,11 +524,12 @@ fn rewrite_errors(prefix_path: Option<&ResponsePath<'_>>, target: &mut Vec<Serve
             path.extend(err.path.drain(1..));
         }
 
-        for subpath in err.path.iter() {
-            if let ConstValue::String(x) = subpath {
-                path.push(ConstValue::String(x.to_string()));
-            }
-        }
+        err.path
+            .iter()
+            .filter(|x| matches!(x, ConstValue::String(_)))
+            .for_each(|x| {
+                path.push(x.clone());
+            });
 
         target.push(ServerError {
             message: err.message,
@@ -558,18 +572,20 @@ fn add_tracing_spans(response: &mut Response) {
     }
 
     fn deserialize_path<'de, D>(deserialize: D) -> Result<Path, D::Error>
-    where D: Deserializer<'de> {
+    where
+        D: Deserializer<'de>,
+    {
         let segments = Vec::<ConstValue>::deserialize(deserialize)?;
 
         fn write_path<W: std::fmt::Write>(w: &mut W, value: &ConstValue) {
             match value {
                 ConstValue::Number(idx) => {
                     write!(w, "{}", idx).unwrap();
-                },
+                }
                 ConstValue::String(name) => {
                     write!(w, "{}", name).unwrap();
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }
 
@@ -591,7 +607,7 @@ fn add_tracing_spans(response: &mut Response) {
                     path: full_path,
                     parent_end,
                 })
-            },
+            }
             None => Ok(Path::default()),
         }
     }
@@ -635,20 +651,24 @@ fn add_tracing_spans(response: &mut Response) {
 
         let parent_path = String::from(resolver.path.parent_path());
 
-        let mut span_builder = tracer
+        let span_builder = tracer
             .span_builder(full_path.clone())
-            .with_start_time(tracing_result.start_time + Duration::nanoseconds(resolver.start_offset))
+            .with_start_time(
+                tracing_result.start_time + Duration::nanoseconds(resolver.start_offset),
+            )
             .with_end_time(
-                tracing_result.start_time +
-                    Duration::nanoseconds(resolver.start_offset) +
-                    Duration::nanoseconds(resolver.duration),
+                tracing_result.start_time
+                    + Duration::nanoseconds(resolver.start_offset)
+                    + Duration::nanoseconds(resolver.duration),
             )
             .with_attributes(attributes);
 
-        if let Some(parent_cx) = resolvers.get(&parent_path) {
-            span_builder = span_builder.with_parent_context(parent_cx.clone());
-        }
+        let span = if let Some(parent_cx) = resolvers.get(&parent_path) {
+            span_builder.start_with_context(&tracer, parent_cx)
+        } else {
+            span_builder.start(&tracer)
+        };
 
-        resolvers.insert(full_path, Context::current_with_span(span_builder.start(&tracer)));
+        resolvers.insert(full_path, Context::current_with_span(span));
     }
 }

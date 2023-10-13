@@ -3,27 +3,11 @@ use std::{collections::HashMap, ops::Deref};
 use indexmap::{IndexMap, IndexSet};
 use parser::{
     types::{
-        self,
-        BaseType,
-        ConstDirective,
-        DirectiveDefinition,
-        DirectiveLocation,
-        DocumentOperations,
-        EnumType,
-        InputObjectType,
-        InterfaceType,
-        ObjectType,
-        SchemaDefinition,
-        Selection,
-        SelectionSet,
-        ServiceDocument,
-        Type,
-        TypeDefinition,
-        TypeSystemDefinition,
-        UnionType,
+        self, BaseType, ConstDirective, DirectiveDefinition, DirectiveLocation, DocumentOperations,
+        EnumType, InputObjectType, InterfaceType, ObjectType, SchemaDefinition, Selection,
+        SelectionSet, ServiceDocument, Type, TypeDefinition, TypeSystemDefinition, UnionType,
     },
-    Positioned,
-    Result,
+    Positioned, Result,
 };
 use tracing::instrument;
 use value::{ConstValue, Name};
@@ -85,6 +69,21 @@ impl Deref for KeyFields {
     }
 }
 
+#[derive(Debug, PartialEq, PartialOrd)]
+pub struct FederationVersion(f32);
+
+impl Default for FederationVersion {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+impl From<f32> for FederationVersion {
+    fn from(version: f32) -> Self {
+        Self(version)
+    }
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct MetaEnumValue {
     pub description: Option<String>,
@@ -123,7 +122,10 @@ impl MetaType {
 
     #[inline]
     pub fn is_composite(&self) -> bool {
-        matches!(self.kind, TypeKind::Object | TypeKind::Interface | TypeKind::Union)
+        matches!(
+            self.kind,
+            TypeKind::Object | TypeKind::Interface | TypeKind::Union
+        )
     }
 
     #[inline]
@@ -138,7 +140,10 @@ impl MetaType {
 
     #[inline]
     pub fn is_input(&self) -> bool {
-        matches!(self.kind, TypeKind::Enum | TypeKind::Scalar | TypeKind::InputObject)
+        matches!(
+            self.kind,
+            TypeKind::Enum | TypeKind::Scalar | TypeKind::InputObject
+        )
     }
 
     #[inline]
@@ -182,6 +187,7 @@ pub struct ComposedSchema {
     pub subscription_type: Option<Name>,
     pub types: IndexMap<Name, MetaType>,
     pub directives: HashMap<Name, MetaDirective>,
+    pub federation_version: FederationVersion,
 }
 
 impl ComposedSchema {
@@ -197,14 +203,14 @@ impl ComposedSchema {
             match definition {
                 TypeSystemDefinition::Schema(schema) => {
                     convert_schema_definition(&mut composed_schema, schema.node);
-                },
+                }
                 TypeSystemDefinition::Type(type_definition) => {
                     composed_schema.types.insert(
                         type_definition.node.name.node.clone(),
                         convert_type_definition(type_definition.node),
                     );
-                },
-                TypeSystemDefinition::Directive(_) => {},
+                }
+                TypeSystemDefinition::Directive(_) => {}
             }
         }
 
@@ -220,18 +226,21 @@ impl ComposedSchema {
 
         for obj in root_objects {
             let name = Name::new(obj);
-            composed_schema.types.insert(name.clone(), MetaType {
-                description: None,
-                name,
-                kind: TypeKind::Object,
-                owner: None,
-                keys: Default::default(),
-                implements: Default::default(),
-                fields: Default::default(),
-                possible_types: Default::default(),
-                enum_values: Default::default(),
-                input_fields: Default::default(),
-            });
+            composed_schema.types.insert(
+                name.clone(),
+                MetaType {
+                    description: None,
+                    name,
+                    kind: TypeKind::Object,
+                    owner: None,
+                    keys: Default::default(),
+                    implements: Default::default(),
+                    fields: Default::default(),
+                    possible_types: Default::default(),
+                    enum_values: Default::default(),
+                    input_fields: Default::default(),
+                },
+            );
         }
 
         composed_schema.query_type = Some(Name::new("Query"));
@@ -242,22 +251,31 @@ impl ComposedSchema {
             for definition in doc.definitions {
                 match definition {
                     TypeSystemDefinition::Type(type_definition) => {
-                        if let types::TypeKind::Object(ObjectType { implements, fields }) = type_definition.node.kind {
+                        if let types::TypeKind::Object(ObjectType { implements, fields }) =
+                            type_definition.node.kind
+                        {
                             let name = type_definition.node.name.node.clone();
-                            let description = type_definition.node.description.map(|description| description.node);
-                            let is_extend = type_definition.node.extend || root_objects.contains(&&*name);
-                            let meta_type = composed_schema.types.entry(name.clone()).or_insert_with(|| MetaType {
-                                description,
-                                name,
-                                kind: TypeKind::Object,
-                                owner: None,
-                                keys: Default::default(),
-                                implements: Default::default(),
-                                fields: Default::default(),
-                                possible_types: Default::default(),
-                                enum_values: Default::default(),
-                                input_fields: Default::default(),
-                            });
+                            let description = type_definition
+                                .node
+                                .description
+                                .map(|description| description.node);
+                            let is_extend =
+                                type_definition.node.extend || root_objects.contains(&&*name);
+                            let meta_type = composed_schema
+                                .types
+                                .entry(name.clone())
+                                .or_insert_with(|| MetaType {
+                                    description,
+                                    name,
+                                    kind: TypeKind::Object,
+                                    owner: None,
+                                    keys: Default::default(),
+                                    implements: Default::default(),
+                                    fields: Default::default(),
+                                    possible_types: Default::default(),
+                                    enum_values: Default::default(),
+                                    input_fields: Default::default(),
+                                });
 
                             if !is_extend {
                                 meta_type.owner = Some(service.clone());
@@ -265,9 +283,13 @@ impl ComposedSchema {
 
                             for directive in type_definition.node.directives {
                                 if directive.node.name.node.as_str() == "key" {
-                                    if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
-                                        if let Some(selection_set) = parse_fields(fields.node)
-                                            .map(|selection_set| Positioned::new(selection_set, directive.pos))
+                                    if let Some(fields) =
+                                        get_argument_str(&directive.node.arguments, "fields")
+                                    {
+                                        if let Some(selection_set) =
+                                            parse_fields(fields.node).map(|selection_set| {
+                                                Positioned::new(selection_set, directive.pos)
+                                            })
                                         {
                                             meta_type
                                                 .keys
@@ -285,7 +307,8 @@ impl ComposedSchema {
 
                             for field in fields {
                                 if is_extend {
-                                    let is_external = has_directive(&field.node.directives, "external");
+                                    let is_external =
+                                        has_directive(&field.node.directives, "external");
                                     if is_external {
                                         continue;
                                     }
@@ -312,11 +335,47 @@ impl ComposedSchema {
                                     });
                                 }
                             }
-                            composed_schema.types.insert(meta_type.name.clone(), meta_type);
+                            composed_schema
+                                .types
+                                .insert(meta_type.name.clone(), meta_type);
                         }
-                    },
-                    TypeSystemDefinition::Schema(_schema_definition) => {},
-                    TypeSystemDefinition::Directive(_directive_definition) => {},
+                    }
+                    TypeSystemDefinition::Schema(schema_definition) => {
+                        if schema_definition.node.extend {
+                            let path = "/federation/v";
+                            let federation_link: Vec<String> = schema_definition
+                                .node
+                                .directives
+                                .iter()
+                                .filter_map(|d| {
+                                    if d.node.name.node.as_str() == "link"
+                                        && get_argument_str(&d.node.arguments, "url")
+                                            .map(|key| key.node.to_string())
+                                            .unwrap_or_default()
+                                            .contains(path)
+                                    {
+                                        get_argument_str(&d.node.arguments, "url")
+                                            .map(|key| key.node.to_ascii_lowercase())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            if federation_link.len() == 1 {
+                                if let Some(version) = federation_link[0].rsplit_once(path) {
+                                    if let Ok(version) = version.1.parse::<f32>() {
+                                        if version > composed_schema.federation_version.0 {
+                                            composed_schema.federation_version = version.into();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if composed_schema.federation_version == FederationVersion::default() {
+                            return Err(CombineError::SchemaIsNotAllowed);
+                        }
+                    }
+                    TypeSystemDefinition::Directive(_directive_definition) => {}
                 }
             }
         }
@@ -341,7 +400,10 @@ impl ComposedSchema {
 
     #[inline]
     pub fn query_type(&self) -> &str {
-        self.query_type.as_ref().map(|name| name.as_str()).unwrap_or("Query")
+        self.query_type
+            .as_ref()
+            .map(|name| name.as_str())
+            .unwrap_or("Query")
     }
 
     #[inline]
@@ -372,9 +434,13 @@ fn get_argument<'a>(
     arguments: &'a [(Positioned<Name>, Positioned<ConstValue>)],
     name: &str,
 ) -> Option<&'a Positioned<ConstValue>> {
-    arguments
-        .iter()
-        .find_map(|d| if d.0.node.as_str() == name { Some(&d.1) } else { None })
+    arguments.iter().find_map(|d| {
+        if d.0.node.as_str() == name {
+            Some(&d.1)
+        } else {
+            None
+        }
+    })
 }
 
 fn get_argument_str<'a>(
@@ -396,7 +462,10 @@ fn parse_fields(fields: &str) -> Option<SelectionSet> {
         })
 }
 
-fn convert_schema_definition(composed_schema: &mut ComposedSchema, schema_definition: SchemaDefinition) {
+fn convert_schema_definition(
+    composed_schema: &mut ComposedSchema,
+    schema_definition: SchemaDefinition,
+) {
     composed_schema.query_type = schema_definition.query.map(|name| name.node);
     composed_schema.mutation_type = schema_definition.mutation.map(|name| name.node);
     composed_schema.subscription_type = schema_definition.subscription.map(|name| name.node);
@@ -420,43 +489,62 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
         types::TypeKind::Scalar => type_definition.kind = TypeKind::Scalar,
         types::TypeKind::Object(ObjectType { implements, fields }) => {
             type_definition.kind = TypeKind::Object;
-            type_definition.implements = implements.into_iter().map(|implement| implement.node).collect();
-            type_definition.fields.extend(
-                fields
-                    .into_iter()
-                    .map(|field| (field.node.name.node.clone(), convert_field_definition(field.node))),
-            );
-        },
+            type_definition.implements = implements
+                .into_iter()
+                .map(|implement| implement.node)
+                .collect();
+            type_definition
+                .fields
+                .extend(fields.into_iter().map(|field| {
+                    (
+                        field.node.name.node.clone(),
+                        convert_field_definition(field.node),
+                    )
+                }));
+        }
         types::TypeKind::Interface(InterfaceType { implements, fields }) => {
             type_definition.kind = TypeKind::Interface;
             type_definition.implements = implements.into_iter().map(|name| name.node).collect();
             type_definition.fields = fields
                 .into_iter()
-                .map(|field| (field.node.name.node.clone(), convert_field_definition(field.node)))
+                .map(|field| {
+                    (
+                        field.node.name.node.clone(),
+                        convert_field_definition(field.node),
+                    )
+                })
                 .collect();
-        },
+        }
         types::TypeKind::Union(UnionType { members }) => {
             type_definition.kind = TypeKind::Union;
             type_definition.possible_types = members.into_iter().map(|name| name.node).collect();
-        },
+        }
         types::TypeKind::Enum(EnumType { values }) => {
             type_definition.kind = TypeKind::Enum;
-            type_definition.enum_values.extend(values.into_iter().map(|value| {
-                (value.node.value.node.clone(), MetaEnumValue {
-                    description: value.node.description.map(|description| description.node),
-                    value: value.node.value.node,
-                    deprecation: get_deprecated(&value.node.directives),
-                })
-            }));
-        },
+            type_definition
+                .enum_values
+                .extend(values.into_iter().map(|value| {
+                    (
+                        value.node.value.node.clone(),
+                        MetaEnumValue {
+                            description: value.node.description.map(|description| description.node),
+                            value: value.node.value.node,
+                            deprecation: get_deprecated(&value.node.directives),
+                        },
+                    )
+                }));
+        }
         types::TypeKind::InputObject(InputObjectType { fields }) => {
             type_definition.kind = TypeKind::InputObject;
-            type_definition.input_fields.extend(
-                fields
-                    .into_iter()
-                    .map(|field| (field.node.name.node.clone(), convert_input_value_definition(field.node))),
-            );
-        },
+            type_definition
+                .input_fields
+                .extend(fields.into_iter().map(|field| {
+                    (
+                        field.node.name.node.clone(),
+                        convert_input_value_definition(field.node),
+                    )
+                }));
+        }
     }
 
     for directive in definition.directives {
@@ -465,13 +553,14 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
                 if let Some(service) = get_argument_str(&directive.node.arguments, "service") {
                     type_definition.owner = Some(service.node.to_string());
                 }
-            },
+            }
             "key" => {
-                if let Some((fields, service)) = get_argument_str(&directive.node.arguments, "fields")
-                    .zip(get_argument_str(&directive.node.arguments, "service"))
+                if let Some((fields, service)) =
+                    get_argument_str(&directive.node.arguments, "fields")
+                        .zip(get_argument_str(&directive.node.arguments, "service"))
                 {
-                    if let Some(selection_set) =
-                        parse_fields(fields.node).map(|selection_set| Positioned::new(selection_set, directive.pos))
+                    if let Some(selection_set) = parse_fields(fields.node)
+                        .map(|selection_set| Positioned::new(selection_set, directive.pos))
                     {
                         type_definition
                             .keys
@@ -480,8 +569,8 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
                             .push(convert_key_fields(selection_set.node));
                     }
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 
@@ -495,7 +584,12 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
         arguments: definition
             .arguments
             .into_iter()
-            .map(|arg| (arg.node.name.node.clone(), convert_input_value_definition(arg.node)))
+            .map(|arg| {
+                (
+                    arg.node.name.node.clone(),
+                    convert_input_value_definition(arg.node),
+                )
+            })
             .collect(),
         ty: definition.ty.node,
         deprecation: get_deprecated(&definition.directives),
@@ -510,18 +604,18 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
                 if let Some(service) = get_argument_str(&directive.node.arguments, "service") {
                     field_definition.service = Some(service.node.to_string());
                 }
-            },
+            }
             "requires" => {
                 if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
                     field_definition.requires = parse_fields(fields.node).map(convert_key_fields);
                 }
-            },
+            }
             "provides" => {
                 if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
                     field_definition.provides = parse_fields(fields.node).map(convert_key_fields);
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 
@@ -535,7 +629,10 @@ fn convert_key_fields(selection_set: SelectionSet) -> KeyFields {
             .into_iter()
             .filter_map(|field| {
                 if let Selection::Field(field) = field.node {
-                    Some((field.node.name.node, convert_key_fields(field.node.selection_set.node)))
+                    Some((
+                        field.node.name.node,
+                        convert_key_fields(field.node.selection_set.node),
+                    ))
                 } else {
                     None
                 }
@@ -567,7 +664,12 @@ fn convert_directive_definition(directive_definition: DirectiveDefinition) -> Me
         arguments: directive_definition
             .arguments
             .into_iter()
-            .map(|arg| (arg.node.name.node.clone(), convert_input_value_definition(arg.node)))
+            .map(|arg| {
+                (
+                    arg.node.name.node.clone(),
+                    convert_input_value_definition(arg.node),
+                )
+            })
             .collect(),
     }
 }
@@ -577,7 +679,8 @@ fn get_deprecated(directives: &[Positioned<ConstDirective>]) -> Deprecation {
         .iter()
         .find(|directive| directive.node.name.node.as_str() == "deprecated")
         .map(|directive| Deprecation::Deprecated {
-            reason: get_argument_str(&directive.node.arguments, "reason").map(|reason| reason.node.to_string()),
+            reason: get_argument_str(&directive.node.arguments, "reason")
+                .map(|reason| reason.node.to_string()),
         })
         .unwrap_or(Deprecation::NoDeprecated)
 }
@@ -600,14 +703,14 @@ fn finish_schema(composed_schema: &mut ComposedSchema) {
                 composed_schema
                     .types
                     .insert(type_definition.name.clone(), type_definition);
-            },
+            }
             TypeSystemDefinition::Directive(directive_definition) => {
                 composed_schema.directives.insert(
                     directive_definition.node.name.node.clone(),
                     convert_directive_definition(directive_definition.node),
                 );
-            },
-            TypeSystemDefinition::Schema(_) => {},
+            }
+            TypeSystemDefinition::Schema(_) => {}
         }
     }
 
@@ -619,38 +722,47 @@ fn finish_schema(composed_schema: &mut ComposedSchema) {
             .unwrap_or("Query"),
     ) {
         let name = Name::new("__type");
-        query_type.fields.insert(name.clone(), MetaField {
-            description: None,
-            name,
-            arguments: {
-                let mut arguments = IndexMap::new();
-                let name = Name::new("name");
-                arguments.insert(name.clone(), MetaInputValue {
-                    description: None,
-                    name,
-                    ty: Type::new("String!").unwrap(),
-                    default_value: None,
-                });
-                arguments
+        query_type.fields.insert(
+            name.clone(),
+            MetaField {
+                description: None,
+                name,
+                arguments: {
+                    let mut arguments = IndexMap::new();
+                    let name = Name::new("name");
+                    arguments.insert(
+                        name.clone(),
+                        MetaInputValue {
+                            description: None,
+                            name,
+                            ty: Type::new("String!").unwrap(),
+                            default_value: None,
+                        },
+                    );
+                    arguments
+                },
+                ty: Type::new("__Type").unwrap(),
+                deprecation: Deprecation::NoDeprecated,
+                service: None,
+                requires: None,
+                provides: None,
             },
-            ty: Type::new("__Type").unwrap(),
-            deprecation: Deprecation::NoDeprecated,
-            service: None,
-            requires: None,
-            provides: None,
-        });
+        );
 
         let name = Name::new("__schema");
-        query_type.fields.insert(name.clone(), MetaField {
-            description: None,
-            name,
-            arguments: Default::default(),
-            ty: Type::new("__Schema!").unwrap(),
-            deprecation: Deprecation::NoDeprecated,
-            service: None,
-            requires: None,
-            provides: None,
-        });
+        query_type.fields.insert(
+            name.clone(),
+            MetaField {
+                description: None,
+                name,
+                arguments: Default::default(),
+                ty: Type::new("__Schema!").unwrap(),
+                deprecation: Deprecation::NoDeprecated,
+                service: None,
+                requires: None,
+                provides: None,
+            },
+        );
     }
 
     let mut possible_types: HashMap<Name, IndexSet<Name>> = Default::default();

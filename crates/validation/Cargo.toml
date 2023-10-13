@@ -10,11 +10,10 @@ repository.workspace = true
 keywords.workspace = true
 
 [dependencies]
-graphgate-schema = { path = "../schema" }
-
-parser = { version = "3.0.24", package = "async-graphql-parser" }
-value = { version = "3.0.24", package = "async-graphql-value" }
-indexmap = { version = "1.8.0", features = ["serde-1"] }
+graphgate-schema.workspace = true
+indexmap.workspace = true
+parser.workspace = true
+value.workspace = true
 
 [dev-dependencies]
-once_cell = "1.9.0"
+once_cell.workspace = true

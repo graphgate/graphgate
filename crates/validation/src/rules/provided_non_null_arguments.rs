@@ -9,12 +9,21 @@ use crate::{Visitor, VisitorContext};
 pub struct ProvidedNonNullArguments;
 
 impl<'a> Visitor<'a> for ProvidedNonNullArguments {
-    fn enter_directive(&mut self, ctx: &mut VisitorContext<'a>, directive: &'a Positioned<Directive>) {
-        if let Some(schema_directive) = ctx.schema.directives.get(directive.node.name.node.as_str()) {
+    fn enter_directive(
+        &mut self,
+        ctx: &mut VisitorContext<'a>,
+        directive: &'a Positioned<Directive>,
+    ) {
+        if let Some(schema_directive) = ctx.schema.directives.get(directive.node.name.node.as_str())
+        {
             for arg in schema_directive.arguments.values() {
-                if !arg.ty.nullable &&
-                    arg.default_value.is_none() &&
-                    !directive.node.arguments.iter().any(|(name, _)| name.node == arg.name)
+                if !arg.ty.nullable
+                    && arg.default_value.is_none()
+                    && !directive
+                        .node
+                        .arguments
+                        .iter()
+                        .any(|(name, _)| name.node == arg.name)
                 {
                     ctx.report_error(
                         vec![directive.pos],
@@ -32,9 +41,13 @@ impl<'a> Visitor<'a> for ProvidedNonNullArguments {
         if let Some(parent_type) = ctx.parent_type() {
             if let Some(schema_field) = parent_type.field_by_name(&field.node.name.node) {
                 for arg in schema_field.arguments.values() {
-                    if !arg.ty.nullable &&
-                        arg.default_value.is_none() &&
-                        !field.node.arguments.iter().any(|(name, _)| name.node == arg.name)
+                    if !arg.ty.nullable
+                        && arg.default_value.is_none()
+                        && !field
+                            .node
+                            .arguments
+                            .iter()
+                            .any(|(name, _)| name.node == arg.name)
                     {
                         ctx.report_error(
                             vec![field.pos],

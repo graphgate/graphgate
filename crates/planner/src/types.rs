@@ -8,8 +8,7 @@ use parser::{
 };
 use serde::{
     ser::{SerializeSeq, SerializeStruct},
-    Serialize,
-    Serializer,
+    Serialize, Serializer,
 };
 use value::{ConstValue, Name, Value, Variables};
 
@@ -73,26 +72,31 @@ impl<'a> Display for FetchQuery<'a> {
                     entity_type,
                     self.selection_set
                 )
-            },
+            }
             None => {
                 write!(f, "{}", self.operation_type)?;
                 if !self.variable_definitions.variables.is_empty() {
                     write!(f, "({})", self.variable_definitions)?;
                 }
                 write!(f, "\n{}", self.selection_set)
-            },
+            }
         }
     }
 }
 
 impl<'a> Serialize for FetchQuery<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: Serializer {
+    where
+        S: Serializer,
+    {
         serializer.serialize_str(&self.to_string())
     }
 }
 
-fn stringify_argument(f: &mut Formatter<'_>, arguments: &[(Positioned<Name>, Positioned<Value>)]) -> FmtResult {
+fn stringify_argument(
+    f: &mut Formatter<'_>,
+    arguments: &[(Positioned<Name>, Positioned<Value>)],
+) -> FmtResult {
     write!(f, "(")?;
     for (idx, (name, value)) in arguments.iter().enumerate() {
         if idx > 0 {
@@ -144,7 +148,10 @@ fn stringify_key_fields(f: &mut Formatter<'_>, prefix: usize, fields: &KeyFields
     Ok(())
 }
 
-fn stringify_selection_ref_set_rec(f: &mut Formatter<'_>, selection_set: &SelectionRefSet<'_>) -> FmtResult {
+fn stringify_selection_ref_set_rec(
+    f: &mut Formatter<'_>,
+    selection_set: &SelectionRefSet<'_>,
+) -> FmtResult {
     write!(f, "{{ ")?;
     for (idx, selection) in selection_set.0.iter().enumerate() {
         if idx > 0 {
@@ -168,17 +175,17 @@ fn stringify_selection_ref_set_rec(f: &mut Formatter<'_>, selection_set: &Select
                     write!(f, " ")?;
                     stringify_selection_ref_set_rec(f, &field.selection_set)?;
                 }
-            },
+            }
             SelectionRef::IntrospectionTypename => {
                 write!(f, "__typename")?;
-            },
+            }
             SelectionRef::RequiredRef(require_ref) => {
                 write!(f, "__key{}___typename:__typename", require_ref.prefix,)?;
                 stringify_key_fields(f, require_ref.prefix, require_ref.fields)?;
                 if let Some(requires) = require_ref.requires {
                     stringify_key_fields(f, require_ref.prefix, requires)?;
                 }
-            },
+            }
             SelectionRef::InlineFragment {
                 type_condition,
                 selection_set,
@@ -188,7 +195,7 @@ fn stringify_selection_ref_set_rec(f: &mut Formatter<'_>, selection_set: &Select
                     None => write!(f, "... ")?,
                 }
                 stringify_selection_ref_set_rec(f, selection_set)?;
-            },
+            }
         }
     }
     write!(f, " }}")
@@ -264,16 +271,23 @@ impl<'a> VariableDefinitionsRef<'a> {
 
 impl<'a> Serialize for VariableDefinitionsRef<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: Serializer {
+    where
+        S: Serializer,
+    {
         struct VariableDefinitionRef<'a>(&'a VariableDefinition);
 
         impl<'a> Serialize for VariableDefinitionRef<'a> {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where S: Serializer {
+            where
+                S: Serializer,
+            {
                 let mut s = serializer.serialize_struct("VariableDefinitions", 3)?;
                 s.serialize_field("name", &self.0.name.node)?;
                 s.serialize_field("type", &self.0.var_type.node.to_string())?;
-                s.serialize_field("defaultValue", &self.0.default_value.as_ref().map(|value| &value.node))?;
+                s.serialize_field(
+                    "defaultValue",
+                    &self.0.default_value.as_ref().map(|value| &value.node),
+                )?;
                 s.end()
             }
         }

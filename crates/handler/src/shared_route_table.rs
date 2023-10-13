@@ -57,8 +57,10 @@ impl Default for SharedRouteTable {
 
 impl SharedRouteTable {
     async fn update_loop(self, mut rx: mpsc::UnboundedReceiver<Command>) {
-        let mut update_interval =
-            tokio::time::interval_at(Instant::now() + Duration::from_secs(3), Duration::from_secs(30));
+        let mut update_interval = tokio::time::interval_at(
+            Instant::now() + Duration::from_secs(3),
+            Duration::from_secs(30),
+        );
 
         loop {
             tokio::select! {
@@ -109,7 +111,8 @@ impl SharedRouteTable {
                     .query(service, Request::new(QUERY_SDL), None, Some(true))
                     .await
                     .with_context(|| format!("Failed to fetch SDL from '{}'.", service))?;
-                let resp: ResponseQuery = value::from_value(resp.data).context("Failed to parse response.")?;
+                let resp: ResponseQuery =
+                    value::from_value(resp.data).context("Failed to parse response.")?;
                 let document = parser::parse_schema(resp.service.sdl)
                     .with_context(|| format!("Invalid SDL from '{}'.", service))?;
                 Ok::<_, Error>((service.to_string(), document))
@@ -148,7 +151,7 @@ impl SharedRouteTable {
                     .status(StatusCode::BAD_REQUEST)
                     .body(err.to_string())
                     .unwrap();
-            },
+            }
         };
 
         let (composed_schema, route_table) = match self.get().await {
@@ -166,10 +169,11 @@ impl SharedRouteTable {
                         .unwrap(),
                     )
                     .unwrap();
-            },
+            }
         };
 
-        let mut plan_builder = PlanBuilder::new(&composed_schema, document).variables(request.variables);
+        let mut plan_builder =
+            PlanBuilder::new(&composed_schema, document).variables(request.variables);
         if let Some(operation) = request.operation {
             plan_builder = plan_builder.operation_name(operation);
         }
@@ -181,7 +185,7 @@ impl SharedRouteTable {
                     .status(StatusCode::OK)
                     .body(serde_json::to_string(&response).unwrap())
                     .unwrap();
-            },
+            }
         };
 
         let executor = Executor::new(&composed_schema);
@@ -196,7 +200,10 @@ impl SharedRouteTable {
         let mut header_map = HeaderMap::new();
 
         if let Some(x) = resp.headers.clone() {
-            for (k, v) in x.into_iter().filter(|(k, _v)| self.receive_headers.contains(k)) {
+            for (k, v) in x
+                .into_iter()
+                .filter(|(k, _v)| self.receive_headers.contains(k))
+            {
                 for val in v {
                     header_map.append(
                         HeaderName::from_bytes(k.as_bytes()).unwrap(),
@@ -208,7 +215,7 @@ impl SharedRouteTable {
 
         if let Some(x) = builder.headers_mut() {
             x.extend(header_map)
-        }
+        };
 
         builder.body(serde_json::to_string(&resp).unwrap()).unwrap()
     }

@@ -3,6 +3,7 @@ use std::{
     net::SocketAddr,
     str::FromStr,
     sync::Arc,
+    time::Instant,
 };
 
 use async_graphql::http::GraphiQLSource;
@@ -17,7 +18,6 @@ use tracing::instrument;
 use warp::{http::Response as HttpResponse, ws::Ws, Filter, Rejection, Reply};
 
 use crate::{constants::*, metrics::METRICS, websocket, SharedRouteTable};
-use std::time::Instant;
 
 #[derive(Clone)]
 pub struct HandlerConfig {
@@ -46,7 +46,9 @@ fn do_forward_headers<T: AsRef<str>>(
     new_header_map
 }
 
-pub fn graphql_request(config: HandlerConfig) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+pub fn graphql_request(
+    config: HandlerConfig,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
     warp::post()
         .and(warp::body::json())
         .and(warp::header::headers_cloned())
@@ -62,7 +64,8 @@ pub fn graphql_request(config: HandlerConfig) -> impl Filter<Extract = (impl Rep
                             .span_builder("query")
                             .with_attributes(vec![
                                 KEY_QUERY.string(request.query.clone()),
-                                KEY_VARIABLES.string(serde_json::to_string(&request.variables).unwrap()),
+                                KEY_VARIABLES
+                                    .string(serde_json::to_string(&request.variables).unwrap()),
                             ])
                             .start(&tracer),
                     );
@@ -79,8 +82,8 @@ pub fn graphql_request(config: HandlerConfig) -> impl Filter<Extract = (impl Rep
 
                     METRICS
                         .query_histogram
-                        .record((Instant::now() - start_time).as_secs_f64());
-                    METRICS.query_counter.add(1);
+                        .record((Instant::now() - start_time).as_secs_f64(), &[]);
+                    METRICS.query_counter.add(1, &[]);
 
                     Ok::<_, Infallible>(resp)
                 }
@@ -88,7 +91,9 @@ pub fn graphql_request(config: HandlerConfig) -> impl Filter<Extract = (impl Rep
         })
 }
 
-pub fn graphql_websocket(config: HandlerConfig) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+pub fn graphql_websocket(
+    config: HandlerConfig,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
     warp::ws()
         .and(warp::get())
         .and(warp::header::exact_ignore_case("upgrade", "websocket"))
@@ -105,28 +110,46 @@ pub fn graphql_websocket(config: HandlerConfig) -> impl Filter<Extract = (impl R
                             .find_map(|p| websocket::Protocols::from_str(p.trim()).ok())
                     })
                     .unwrap_or(websocket::Protocols::SubscriptionsTransportWS);
-                let header_map = do_forward_headers(&config.forward_headers, &header_map, remote_addr);
+                let header_map =
+                    do_forward_headers(&config.forward_headers, &header_map, remote_addr);
 
                 let reply = ws.on_upgrade(move |websocket| async move {
-                    if let Some((composed_schema, route_table)) = config.shared_route_table.get().await {
-                        websocket::server(composed_schema, route_table, websocket, protocol, header_map).await;
+                    if let Some((composed_schema, route_table)) =
+                        config.shared_route_table.get().await
+                    {
+                        websocket::server(
+                            composed_schema,
+                            route_table,
+                            websocket,
+                            protocol,
+                            header_map,
+                        )
+                        .await;
                     }
                 });
 
-                warp::reply::with_header(reply, "Sec-WebSocket-Protocol", protocol.sec_websocket_protocol())
+                warp::reply::with_header(
+                    reply,
+                    "Sec-WebSocket-Protocol",
+                    protocol.sec_websocket_protocol(),
+                )
             }
         })
 }
 
 #[instrument(level = "trace")]
-pub fn graphql_playground(path: String) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+pub fn graphql_playground(
+    path: String,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
     let endpoint = format!("/{path}");
     warp::get().map(move || {
-        HttpResponse::builder().header("content-type", "text/html").body(
-            GraphiQLSource::build()
-                .endpoint(endpoint.as_str())
-                .subscription_endpoint(endpoint.as_str())
-                .finish(),
-        )
+        HttpResponse::builder()
+            .header("content-type", "text/html")
+            .body(
+                GraphiQLSource::build()
+                    .endpoint(endpoint.as_str())
+                    .subscription_endpoint(endpoint.as_str())
+                    .finish(),
+            )
     })
 }
