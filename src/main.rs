@@ -4,12 +4,18 @@ mod config;
 mod k8s;
 mod options;
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{convert::Infallible, net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
 use config::Config;
 use futures_util::FutureExt;
-use graphgate_handler::{handler, handler::HandlerConfig, SharedRouteTable};
+use graphgate_handler::{
+    auth::{Auth, AuthError},
+    handler,
+    handler::HandlerConfig,
+    SharedRouteTable,
+};
+use graphgate_planner::{Response, ServerError};
 use opentelemetry::{
     global, global::GlobalTracerProvider, sdk::metrics::MeterProvider,
     trace::noop::NoopTracerProvider,
@@ -19,10 +25,15 @@ use prometheus::{Encoder, Registry, TextEncoder};
 use structopt::StructOpt;
 use tokio::{signal, time::Duration};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use value::ConstValue;
 use warp::{http::Response as HttpResponse, hyper::StatusCode, Filter, Rejection, Reply};
 
 // Use Jemalloc only for musl-64 bits platforms
-#[cfg(all(target_arch = "x86_64", target_env = "musl", target_pointer_width = "64"))]
+#[cfg(all(
+    target_arch = "x86_64",
+    target_env = "musl",
+    target_pointer_width = "64"
+))]
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
@@ -102,6 +113,29 @@ pub fn metrics(
     })
 }
 
+async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Infallible> {
+    let (code, message) = if err.is_not_found() {
+        (StatusCode::OK, "Not Found".to_string())
+    } else if let Some(e) = err.find::<AuthError>() {
+        (StatusCode::OK, e.to_string())
+    } else {
+        tracing::error!("unhandled error: {:?}", err);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Internal Server Error".to_string(),
+        )
+    };
+
+    let res = warp::reply::json(&Response {
+        data: ConstValue::Null,
+        errors: vec![ServerError::new(message)],
+        extensions: Default::default(),
+        headers: None,
+    });
+
+    Ok(warp::reply::with_status(res, code))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let options: Options = Options::from_args();
@@ -142,41 +176,35 @@ async fn main() -> Result<()> {
         forward_headers: Arc::new(config.forward_headers),
     };
 
-    let cors = if let Some(cors_config) = config.cors {
-        let warp_cors = warp::cors();
+    let auth = Auth::try_new(config.authorization.unwrap_or_default()).await?;
 
-        let origins_vec = cors_config.allow_origins.unwrap_or_default();
+    let cors = config.cors.map(|cors_config| {
+        warp::cors()
+            .allow_any_origin()
+            .allow_methods(
+                cors_config
+                    .allow_methods
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|s| s as &str)
+                    .collect::<Vec<&str>>(),
+            )
+            .allow_credentials(cors_config.allow_credentials.unwrap_or(false))
+            .allow_headers(cors_config.allow_headers.unwrap_or_default())
+            .allow_origins(
+                cors_config
+                    .allow_origins
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|s| s as &str)
+                    .collect::<Vec<&str>>(),
+            )
+    });
 
-        let origins: Vec<&str> = origins_vec.iter().map(|s| s as &str).collect();
-
-        let headers_vec = cors_config.allow_headers.unwrap_or_default();
-
-        let headers: Vec<&str> = headers_vec.iter().map(|s| s as &str).collect();
-
-        let allow_credentials = cors_config.allow_credentials.unwrap_or(false);
-
-        let allow_methods_vec = cors_config.allow_methods.unwrap_or_default();
-
-        let methods: Vec<&str> = allow_methods_vec.iter().map(|s| s as &str).collect();
-
-        let cors_setup = warp_cors
-            .allow_headers(headers)
-            .allow_origins(origins)
-            .allow_methods(methods)
-            .allow_credentials(allow_credentials);
-
-        if let Some(true) = cors_config.allow_any_origin {
-            Some(cors_setup.allow_any_origin())
-        } else {
-            Some(cors_setup)
-        }
-    } else {
-        None
-    };
-
+    let auth = Arc::new(auth);
     let graphql = warp::path::end().and(
-        handler::graphql_request(handler_config.clone())
-            .or(handler::graphql_websocket(handler_config.clone()))
+        handler::graphql_request(auth.clone(), handler_config.clone())
+            .or(handler::graphql_websocket(auth, handler_config.clone()))
             .or(handler::graphql_playground()),
     );
     let health = warp::path!("health").map(|| warp::reply::json(&"healthy"));
@@ -187,14 +215,14 @@ async fn main() -> Result<()> {
         .context(format!("Failed to parse bind addr '{}'", config.bind))?;
     if let Some(warp_cors) = cors {
         let routes = graphql.or(health).or(metrics(registry)).with(warp_cors);
-        let (addr, server) = warp::serve(routes)
+        let (addr, server) = warp::serve(routes.recover(handle_rejection))
             .bind_with_graceful_shutdown(bind_addr, signal::ctrl_c().map(|_| ()));
         tracing::info!(addr = %addr, "Listening");
         server.await;
         tracing::info!("Server shutdown");
     } else {
         let routes = graphql.or(health).or(metrics(registry));
-        let (addr, server) = warp::serve(routes)
+        let (addr, server) = warp::serve(routes.recover(handle_rejection))
             .bind_with_graceful_shutdown(bind_addr, signal::ctrl_c().map(|_| ()));
         tracing::info!(addr = %addr, "Listening");
         server.await;

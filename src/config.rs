@@ -1,4 +1,4 @@
-use graphgate_handler::{ServiceRoute, ServiceRouteTable};
+use graphgate_handler::{auth::AuthConfig, ServiceRoute, ServiceRouteTable};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -21,6 +21,8 @@ pub struct Config {
     pub jaeger: Option<JaegerConfig>,
 
     pub cors: Option<CorsConfig>,
+
+    pub authorization: Option<AuthConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -48,7 +50,6 @@ impl ServiceConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct CorsConfig {
-    pub allow_any_origin: Option<bool>,
     pub allow_methods: Option<Vec<String>>,
     pub allow_credentials: Option<bool>,
     pub allow_headers: Option<Vec<String>>,
