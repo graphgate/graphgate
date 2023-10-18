@@ -30,9 +30,6 @@ tracing-subscriber = { version = "0.3.6", features = ["env-filter"] }
 value.workspace = true
 warp.workspace = true
 
-[target.x86_64-unknown-linux-musl.dependencies.jemallocator]
-version = "0.5.4"
-
 [dev-dependencies]
 async-graphql.workspace = true
 async-graphql-warp.workspace = true
