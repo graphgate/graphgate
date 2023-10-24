@@ -167,7 +167,10 @@ async fn main() -> Result<()> {
         forward_headers: Arc::new(config.forward_headers),
     };
 
-    let auth = Auth::try_new(config.authorization.unwrap_or_default()).await?;
+    let auth: Arc<Auth> = match config.authorization {
+        Some(config) => Arc::new(Auth::try_new(config).await?),
+        None => Arc::new(Auth::default()),
+    };
 
     let cors = config.cors.map(|cors_config| {
         warp::cors()
@@ -192,7 +195,6 @@ async fn main() -> Result<()> {
             )
     });
 
-    let auth = Arc::new(auth);
     let graphql = warp::path::end().and(
         handler::graphql_request(auth.clone(), handler_config.clone())
             .or(handler::graphql_websocket(auth, handler_config.clone()))

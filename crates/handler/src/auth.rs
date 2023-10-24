@@ -7,6 +7,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use warp::{header::headers_cloned, Filter, Rejection};
 
+#[derive(Default)]
 pub struct Auth {
     pub config: AuthConfig,
     pub decoding_keys: HashMap<String, DecodingKey>,
@@ -14,6 +15,8 @@ pub struct Auth {
 
 #[derive(Debug, Default, Deserialize)]
 pub struct AuthConfig {
+    #[serde(default)]
+    pub enabled: bool,
     #[serde(default = "default_header_name")]
     pub header_name: String,
     #[serde(default)]
@@ -83,6 +86,10 @@ pub fn with_auth(auth: Arc<Auth>) -> impl Filter<Extract = ((),), Error = Reject
 }
 
 async fn jwt_auth_validate(header_map: HeaderMap, auth: Arc<Auth>) -> Result<(), Rejection> {
+    if !auth.config.enabled {
+        return Ok(());
+    }
+
     let header = header_map.get(auth.config.header_name.as_str());
     if header.is_none() && auth.config.require_auth {
         return Err(warp::reject::custom(AuthError::MissingAuthorizationHeader));
