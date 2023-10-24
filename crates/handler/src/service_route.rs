@@ -3,7 +3,6 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use futures_util::TryFutureExt;
 use graphgate_planner::{Request, Response};
 use http::HeaderMap;
 use once_cell::sync::Lazy;
@@ -90,8 +89,16 @@ impl ServiceRouteTable {
             .headers(header_map.cloned().unwrap_or_default())
             .json(&request)
             .send()
-            .and_then(|res| async move { res.error_for_status() })
             .await?;
+
+        if !raw_resp.status().is_success() {
+            let body = raw_resp.text().await?;
+            return Err(anyhow::anyhow!(
+                "received non-2xx response from service \"{}\", body: \"{}\"",
+                service,
+                body
+            ));
+        }
 
         let mut headers: HashMap<String, Vec<String>> = HashMap::new();
 
