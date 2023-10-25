@@ -12,6 +12,7 @@ readme = "README.md"
 
 [dependencies]
 anyhow.workspace = true
+clap = { version = "4", features = ["env", "derive"] }
 futures-util.workspace = true
 graphgate-handler.workspace = true
 graphgate-planner.workspace = true
@@ -22,7 +23,6 @@ opentelemetry-jaeger = { version = "0.19.0", features = ["rt-tokio"] }
 opentelemetry-prometheus = "0.13.0"
 prometheus = "0.13.3"
 serde.workspace = true
-structopt = "0.3.26"
 tokio = { version = "1.32.0", features = ["rt-multi-thread", "time", "macros", "sync", "signal"] }
 toml = "0.8.2"
 tracing = "0.1.29"

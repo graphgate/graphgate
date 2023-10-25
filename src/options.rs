@@ -1,8 +1,8 @@
-use structopt::StructOpt;
+use clap::Parser;
 
-#[derive(StructOpt)]
+#[derive(Parser, Debug)]
 pub struct Options {
     /// Path of the config file
-    #[structopt(default_value = "config.toml")]
+    #[clap(long, env = "CONFIG_FILE", default_value = "config.toml")]
     pub config: String,
 }

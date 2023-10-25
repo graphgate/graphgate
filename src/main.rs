@@ -7,6 +7,7 @@ mod options;
 use std::{convert::Infallible, net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use config::Config;
 use futures_util::FutureExt;
 use graphgate_handler::{
@@ -22,7 +23,6 @@ use opentelemetry::{
 };
 use options::Options;
 use prometheus::{Encoder, Registry, TextEncoder};
-use structopt::StructOpt;
 use tokio::{signal, time::Duration};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use value::ConstValue;
@@ -129,7 +129,7 @@ async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Inf
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let options: Options = Options::from_args();
+    let options: Options = Options::parse();
     init_tracing();
 
     let config = toml::from_str::<Config>(
