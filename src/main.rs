@@ -199,8 +199,6 @@ async fn main() -> Result<()> {
             .build(),
     };
 
-    tracing::info!("cors settings: {:#?}", cors);
-
     let graphql = warp::path::end().and(
         handler::graphql_request(auth.clone(), handler_config.clone())
             .or(handler::graphql_websocket(auth, handler_config.clone()))

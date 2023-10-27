@@ -68,21 +68,6 @@ impl Deref for KeyFields {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub struct FederationVersion(f32);
-
-impl Default for FederationVersion {
-    fn default() -> Self {
-        Self(1.0)
-    }
-}
-
-impl From<f32> for FederationVersion {
-    fn from(version: f32) -> Self {
-        Self(version)
-    }
-}
-
 #[derive(Debug, Eq, PartialEq)]
 pub struct MetaEnumValue {
     pub description: Option<String>,
@@ -186,7 +171,6 @@ pub struct ComposedSchema {
     pub subscription_type: Option<Name>,
     pub types: IndexMap<Name, MetaType>,
     pub directives: HashMap<Name, MetaDirective>,
-    pub federation_version: FederationVersion,
 }
 
 impl ComposedSchema {
@@ -338,41 +322,7 @@ impl ComposedSchema {
                                 .insert(meta_type.name.clone(), meta_type);
                         }
                     }
-                    TypeSystemDefinition::Schema(schema_definition) => {
-                        if schema_definition.node.extend {
-                            let path = "/federation/v";
-                            let federation_link: Vec<String> = schema_definition
-                                .node
-                                .directives
-                                .iter()
-                                .filter_map(|d| {
-                                    if d.node.name.node.as_str() == "link"
-                                        && get_argument_str(&d.node.arguments, "url")
-                                            .map(|key| key.node.to_string())
-                                            .unwrap_or_default()
-                                            .contains(path)
-                                    {
-                                        get_argument_str(&d.node.arguments, "url")
-                                            .map(|key| key.node.to_ascii_lowercase())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect();
-                            if federation_link.len() == 1 {
-                                if let Some(version) = federation_link[0].rsplit_once(path) {
-                                    if let Ok(version) = version.1.parse::<f32>() {
-                                        if version > composed_schema.federation_version.0 {
-                                            composed_schema.federation_version = version.into();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if composed_schema.federation_version == FederationVersion::default() {
-                            return Err(CombineError::SchemaIsNotAllowed);
-                        }
-                    }
+                    TypeSystemDefinition::Schema(_schema_definition) => {}
                     TypeSystemDefinition::Directive(_directive_definition) => {}
                 }
             }
