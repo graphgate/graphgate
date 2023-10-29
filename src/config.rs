@@ -68,10 +68,15 @@ impl Config {
     pub fn create_route_table(&self) -> ServiceRouteTable {
         let mut route_table = ServiceRouteTable::default();
         for service in &self.services {
+            let addr = match std::env::var(format!("{}_URI", service.name)) {
+                Ok(v) => v,
+                Err(_) => service.addr.clone(),
+            };
+
             route_table.insert(
                 service.name.clone(),
                 ServiceRoute {
-                    addr: service.addr.clone(),
+                    addr,
                     tls: service.tls,
                     query_path: service.query_path.clone(),
                     subscribe_path: service.subscribe_path.clone(),
