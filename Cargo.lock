@@ -810,6 +810,7 @@ dependencies = [
  "indexmap 2.0.2",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]

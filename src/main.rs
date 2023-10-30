@@ -184,20 +184,28 @@ async fn main() -> Result<()> {
             .or(handler::graphql_playground(config.path.clone())),
     );
     let health = warp::path!("health").map(|| warp::reply::json(&"healthy"));
+    let preflight_request = warp::options().map(warp::reply);
 
     let bind_addr: SocketAddr = config
         .bind
         .parse()
         .context(format!("Failed to parse bind addr '{}'", config.bind))?;
     if let Some(warp_cors) = cors {
-        let routes = graphql.or(health).or(metrics(registry)).with(warp_cors);
+        let routes = graphql
+            .or(health)
+            .or(metrics(registry))
+            .or(preflight_request)
+            .with(warp_cors);
         let (addr, server) = warp::serve(routes)
             .bind_with_graceful_shutdown(bind_addr, signal::ctrl_c().map(|_| ()));
         tracing::info!(addr = %addr, "Listening");
         server.await;
         tracing::info!("Server shutdown");
     } else {
-        let routes = graphql.or(health).or(metrics(registry));
+        let routes = graphql
+            .or(health)
+            .or(metrics(registry))
+            .or(preflight_request);
         let (addr, server) = warp::serve(routes)
             .bind_with_graceful_shutdown(bind_addr, signal::ctrl_c().map(|_| ()));
         tracing::info!(addr = %addr, "Listening");

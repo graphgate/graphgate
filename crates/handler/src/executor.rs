@@ -285,7 +285,7 @@ impl<'e> Executor<'e> {
             path: &[PathSegment<'_>],
             prefix: usize,
         ) {
-            let segment = match path.get(0) {
+            let segment = match path.first() {
                 Some(segment) => segment,
                 None => return,
             };
@@ -350,7 +350,7 @@ impl<'e> Executor<'e> {
             values: &mut impl Iterator<Item = ConstValue>,
             flags: &mut impl Iterator<Item = bool>,
         ) {
-            let segment = match path.get(0) {
+            let segment = match path.first() {
                 Some(segment) => segment,
                 None => return,
             };

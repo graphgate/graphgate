@@ -11,6 +11,7 @@ use parser::{
     },
     Positioned,
 };
+use tracing::instrument;
 use value::{ConstValue, Name, Value, Variables};
 
 use crate::{
@@ -61,6 +62,7 @@ impl<'a> PlanBuilder<'a> {
         Self { variables, ..self }
     }
 
+    #[instrument(err(Debug), skip(self), ret, level = "trace")]
     fn check_rules(&self) -> Result<(), Response> {
         let rule_errors =
             graphgate_validation::check_rules(self.schema, &self.document, &self.variables);
@@ -93,6 +95,7 @@ impl<'a> PlanBuilder<'a> {
         }
     }
 
+    #[instrument(err(Debug), skip(self), ret, level = "trace")]
     pub fn plan(&self) -> Result<RootNode, Response> {
         self.check_rules()?;
 
@@ -540,10 +543,10 @@ impl<'a> Context<'a> {
         };
 
         if service != current_service {
-            let mut keys = parent_type.keys.get(service).and_then(|x| x.get(0));
+            let mut keys = parent_type.keys.get(service).and_then(|x| x.first());
             if keys.is_none() {
                 if let Some(owner) = &parent_type.owner {
-                    keys = parent_type.keys.get(owner).and_then(|x| x.get(0));
+                    keys = parent_type.keys.get(owner).and_then(|x| x.first());
                 }
             }
             let keys = match keys {
@@ -896,6 +899,7 @@ fn is_list(ty: &Type) -> bool {
     matches!(ty.base, BaseType::List(_))
 }
 
+#[instrument(ret, level = "trace")]
 fn get_operation<'a>(
     document: &'a ExecutableDocument,
     operation_name: Option<&str>,
