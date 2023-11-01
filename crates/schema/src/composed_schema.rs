@@ -259,6 +259,7 @@ impl ComposedSchema {
                                     input_fields: Default::default(),
                                 });
 
+
                             if !is_extend {
                                 meta_type.owner = Some(service.clone());
                             };

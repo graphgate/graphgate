@@ -1,6 +1,7 @@
 use std::{collections::HashMap, convert::Infallible, sync::Arc};
 
 use anyhow::Context;
+use clap::Args;
 use http::{header::AUTHORIZATION, HeaderMap};
 use jsonwebtoken::{jwk::JwkSet, DecodingKey};
 use serde::Deserialize;
@@ -13,17 +14,25 @@ pub struct Auth {
     pub decoding_keys: HashMap<String, DecodingKey>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Args, Clone, Debug, Default, Deserialize)]
 pub struct AuthConfig {
+    #[clap(long, env = "AUTH_ENABLED", default_value_t = false)]
     #[serde(default)]
     pub enabled: bool,
+
+    #[clap(long, env = "AUTH_HEADER_NAME", default_value = "authorization")]
     #[serde(default = "default_header_name")]
     pub header_name: String,
-    #[serde(default)]
-    pub header_prefix: String,
-    #[serde(default)]
-    pub require_auth: bool,
 
+    #[clap(long, env = "AUTH_HEADER_PREFIX", default_value = "Bearer")]
+    #[serde(default = "default_header_prefix")]
+    pub header_prefix: String,
+
+    #[clap(long, env = "AUTH_REQUIRED", default_value_t = false)]
+    #[serde(default)]
+    pub required: bool,
+
+    #[clap(long, env = "AUTH_JWKS", default_value = "")]
     pub jwks: String,
 }
 
@@ -91,7 +100,7 @@ async fn jwt_auth_validate(header_map: HeaderMap, auth: Arc<Auth>) -> Result<(),
     }
 
     let header = header_map.get(auth.config.header_name.as_str());
-    if header.is_none() && auth.config.require_auth {
+    if header.is_none() && auth.config.required {
         return Err(warp::reject::custom(AuthError::MissingAuthorizationHeader));
     }
 
@@ -125,4 +134,7 @@ async fn jwt_auth_validate(header_map: HeaderMap, auth: Arc<Auth>) -> Result<(),
 
 fn default_header_name() -> String {
     AUTHORIZATION.to_string()
+}
+fn default_header_prefix() -> String {
+    "Bearer".to_string()
 }

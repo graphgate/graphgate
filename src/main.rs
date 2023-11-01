@@ -2,12 +2,10 @@
 
 mod config;
 mod k8s;
-mod options;
 
 use std::{convert::Infallible, net::SocketAddr, sync::Arc};
 
 use anyhow::{Context, Result};
-use clap::Parser;
 use config::Config;
 use futures_util::FutureExt;
 use graphgate_handler::{
@@ -21,7 +19,6 @@ use opentelemetry::{
     global, global::GlobalTracerProvider, sdk::metrics::MeterProvider,
     trace::noop::NoopTracerProvider,
 };
-use options::Options;
 use prometheus::{Encoder, Registry, TextEncoder};
 use tokio::{signal, time::Duration};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -60,25 +57,32 @@ async fn update_route_table_in_k8s(shared_route_table: SharedRouteTable, gateway
 }
 
 fn init_tracer(config: &Config) -> Result<GlobalTracerProvider> {
+    fn default_provider() -> GlobalTracerProvider {
+        let provider = NoopTracerProvider::new();
+        global::set_tracer_provider(provider)
+    }
+
     let uninstall = match &config.jaeger {
         Some(config) => {
-            tracing::info!(
-                agent_endpoint = %config.agent_endpoint,
-                service_name = %config.service_name,
-                "Initialize Jaeger"
-            );
-            let provider = opentelemetry_jaeger::new_agent_pipeline()
-                .with_endpoint(&config.agent_endpoint)
-                .with_service_name(&config.service_name)
-                .build_batch(opentelemetry::runtime::Tokio)
-                .context("Failed to initialize jaeger.")?;
-            global::set_tracer_provider(provider)
+            if let Some(agent_endpoint) = &config.agent_endpoint {
+                tracing::info!(
+                    agent_endpoint = %agent_endpoint,
+                    service_name = %config.service_name,
+                    "Initialize Jaeger"
+                );
+                let provider = opentelemetry_jaeger::new_agent_pipeline()
+                    .with_endpoint(agent_endpoint)
+                    .with_service_name(&config.service_name)
+                    .build_batch(opentelemetry::runtime::Tokio)
+                    .context("Failed to initialize jaeger.")?;
+                global::set_tracer_provider(provider)
+            } else {
+                default_provider()
+            }
         }
-        None => {
-            let provider = NoopTracerProvider::new();
-            global::set_tracer_provider(provider)
-        }
+        None => default_provider(),
     };
+
     Ok(uninstall)
 }
 
@@ -129,14 +133,9 @@ async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Inf
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let options: Options = Options::parse();
     init_tracing();
 
-    let config = toml::from_str::<Config>(
-        &std::fs::read_to_string(&options.config)
-            .with_context(|| format!("Failed to load config file '{}'.", options.config))?,
-    )
-    .with_context(|| format!("Failed to parse config file '{}'.", options.config))?;
+    let config = Config::try_parse()?;
     let _uninstall = init_tracer(&config)?;
     let registry = Registry::new();
     let exporter = opentelemetry_prometheus::exporter()
@@ -146,6 +145,7 @@ async fn main() -> Result<()> {
     global::set_meter_provider(meter_provider);
 
     let mut shared_route_table = SharedRouteTable::default();
+
     if !config.services.is_empty() {
         tracing::info!("Route table in the configuration file.");
         shared_route_table.set_route_table(config.create_route_table());
