@@ -4,6 +4,7 @@ directive @key(fields: String! service: String!) on OBJECT
 directive @resolve(service: String!) on FIELD_DEFINITION
 directive @provides(fields: String!) on FIELD_DEFINITION
 directive @requires(fields: String!) on FIELD_DEFINITION
+directive @shareable repeatable on FIELD_DEFINITION | OBJECT
 
 scalar DateTime
 
@@ -24,6 +25,7 @@ type Query {
     user(id: ID!): User @resolve(service: "accounts")
     topProducts: [Product!]! @resolve(service: "products")
     node(id: ID!): Node @resolve(service: "accounts")
+    reviews(productId: ID!, limit: Int): [Review!]! @resolve(service: "reviews")
 }
 
 type Mutation {
@@ -38,6 +40,12 @@ type Subscription {
     reviews: Review @resolve(service: "reviews")
 }
 
+type Timestamp @shareable {
+    createdAt: DateTime
+    updatedAt: DateTime
+    deletedAt: DateTime
+}
+
 type User
 @owner(service: "accounts")
 @key(fields: "id" service: "accounts")
@@ -49,6 +57,7 @@ type User
     reviews: [Review]! @resolve(service: "reviews")
     products: [Product]! @resolve(service: "products")
     storeAccount: StoreAccount!
+    timestamp: Timestamp!
 }
 
 interface Node {
@@ -135,6 +144,7 @@ type Review
     author: User!
     product: Product!
     attachment: Attachment
+    timestamp: Timestamp!
 }
 
 union Attachment = Text | Image | Audio
