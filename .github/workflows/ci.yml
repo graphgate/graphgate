@@ -22,7 +22,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Check format
-        run: cargo fmt --workspace -- --check
+        run: cargo fmt --all -- --check
 
       - name: Check with clippy
         run: cargo clippy --workspace
