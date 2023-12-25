@@ -29,19 +29,12 @@ impl<'a> Visitor<'a> for FragmentsOnCompositeTypes {
         }
     }
 
-    fn enter_inline_fragment(
-        &mut self,
-        ctx: &mut VisitorContext<'a>,
-        inline_fragment: &'a Positioned<InlineFragment>,
-    ) {
+    fn enter_inline_fragment(&mut self, ctx: &mut VisitorContext<'a>, inline_fragment: &'a Positioned<InlineFragment>) {
         if let Some(current_type) = ctx.current_type() {
             if !current_type.is_composite() {
                 ctx.report_error(
                     vec![inline_fragment.pos],
-                    format!(
-                        "Fragment cannot condition non composite type \"{}\"",
-                        current_type.name
-                    ),
+                    format!("Fragment cannot condition non composite type \"{}\"", current_type.name),
                 );
             }
         }

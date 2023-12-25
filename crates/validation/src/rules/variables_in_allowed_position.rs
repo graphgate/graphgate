@@ -5,11 +5,9 @@ use std::{
 
 use graphgate_schema::TypeExt;
 use parser::{
-    types::{
-        ExecutableDocument, FragmentDefinition, FragmentSpread, OperationDefinition, Type,
-        VariableDefinition,
-    },
-    Pos, Positioned,
+    types::{ExecutableDocument, FragmentDefinition, FragmentSpread, OperationDefinition, Type, VariableDefinition},
+    Pos,
+    Positioned,
 };
 use value::{Name, Value};
 
@@ -40,15 +38,14 @@ impl<'a> VariableInAllowedPosition<'a> {
         if let Some(usages) = self.variable_usages.get(from) {
             for (var_name, usage_pos, var_type) in usages {
                 if let Some(def) = var_defs.iter().find(|def| def.node.name.node == *var_name) {
-                    let expected_type =
-                        if def.node.var_type.node.nullable && def.node.default_value.is_some() {
-                            // A nullable type with a default value functions as a non-nullable
-                            let mut ty = def.node.var_type.node.clone();
-                            ty.nullable = false;
-                            Cow::Owned(ty)
-                        } else {
-                            Cow::Borrowed(&def.node.var_type.node)
-                        };
+                    let expected_type = if def.node.var_type.node.nullable && def.node.default_value.is_some() {
+                        // A nullable type with a default value functions as a non-nullable
+                        let mut ty = def.node.var_type.node.clone();
+                        ty.nullable = false;
+                        Cow::Owned(ty)
+                    } else {
+                        Cow::Borrowed(&def.node.var_type.node)
+                    };
                     if !var_type.is_subtype(&expected_type) {
                         ctx.report_error(
                             vec![def.pos, *usage_pos],
@@ -101,10 +98,7 @@ impl<'a> Visitor<'a> for VariableInAllowedPosition<'a> {
         variable_definition: &'a Positioned<VariableDefinition>,
     ) {
         if let Some(ref scope) = self.current_scope {
-            self.variable_defs
-                .entry(*scope)
-                .or_default()
-                .push(variable_definition);
+            self.variable_defs.entry(*scope).or_default().push(variable_definition);
         }
     }
 
@@ -131,11 +125,10 @@ impl<'a> Visitor<'a> for VariableInAllowedPosition<'a> {
         if let Value::Variable(name) = value {
             if let Some(expected_type) = expected_type {
                 if let Some(scope) = &self.current_scope {
-                    self.variable_usages.entry(*scope).or_default().push((
-                        name,
-                        pos,
-                        *expected_type,
-                    ));
+                    self.variable_usages
+                        .entry(*scope)
+                        .or_default()
+                        .push((name, pos, *expected_type));
                 }
             }
         }

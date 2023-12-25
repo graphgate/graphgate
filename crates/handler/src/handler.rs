@@ -21,7 +21,8 @@ use crate::{
     auth::{with_auth, Auth},
     constants::*,
     metrics::METRICS,
-    websocket, SharedRouteTable,
+    websocket,
+    SharedRouteTable,
 };
 
 #[derive(Clone)]
@@ -61,10 +62,7 @@ pub fn graphql_request(
         .and(warp::header::headers_cloned())
         .and(warp::addr::remote())
         .and_then({
-            move |_auth: (),
-                  request: Request,
-                  header_map: HeaderMap,
-                  remote_addr: Option<SocketAddr>| {
+            move |_auth: (), request: Request, header_map: HeaderMap, remote_addr: Option<SocketAddr>| {
                 let config = config.clone();
                 async move {
                     let tracer = global::tracer("graphql");
@@ -74,8 +72,7 @@ pub fn graphql_request(
                             .span_builder("query")
                             .with_attributes(vec![
                                 KEY_QUERY.string(request.query.clone()),
-                                KEY_VARIABLES
-                                    .string(serde_json::to_string(&request.variables).unwrap()),
+                                KEY_VARIABLES.string(serde_json::to_string(&request.variables).unwrap()),
                             ])
                             .start(&tracer),
                     );
@@ -113,11 +110,7 @@ pub fn graphql_websocket(
         .and(warp::header::headers_cloned())
         .and(warp::addr::remote())
         .map({
-            move |ws: Ws,
-                  _auth: (),
-                  protocols: Option<String>,
-                  header_map,
-                  remote_addr: Option<SocketAddr>| {
+            move |ws: Ws, _auth: (), protocols: Option<String>, header_map, remote_addr: Option<SocketAddr>| {
                 let config = config.clone();
                 let protocol = protocols
                     .and_then(|protocols| {
@@ -126,46 +119,28 @@ pub fn graphql_websocket(
                             .find_map(|p| websocket::Protocols::from_str(p.trim()).ok())
                     })
                     .unwrap_or(websocket::Protocols::SubscriptionsTransportWS);
-                let header_map =
-                    do_forward_headers(&config.forward_headers, &header_map, remote_addr);
+                let header_map = do_forward_headers(&config.forward_headers, &header_map, remote_addr);
 
                 let reply = ws.on_upgrade(move |websocket| async move {
-                    if let Some((composed_schema, route_table)) =
-                        config.shared_route_table.get().await
-                    {
-                        websocket::server(
-                            composed_schema,
-                            route_table,
-                            websocket,
-                            protocol,
-                            header_map,
-                        )
-                        .await;
+                    if let Some((composed_schema, route_table)) = config.shared_route_table.get().await {
+                        websocket::server(composed_schema, route_table, websocket, protocol, header_map).await;
                     }
                 });
 
-                warp::reply::with_header(
-                    reply,
-                    "Sec-WebSocket-Protocol",
-                    protocol.sec_websocket_protocol(),
-                )
+                warp::reply::with_header(reply, "Sec-WebSocket-Protocol", protocol.sec_websocket_protocol())
             }
         })
 }
 
 #[instrument(level = "trace")]
-pub fn graphql_playground(
-    path: String,
-) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+pub fn graphql_playground(path: String) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
     let endpoint = format!("/{path}");
     warp::get().map(move || {
-        HttpResponse::builder()
-            .header("content-type", "text/html")
-            .body(
-                GraphiQLSource::build()
-                    .endpoint(endpoint.as_str())
-                    .subscription_endpoint(endpoint.as_str())
-                    .finish(),
-            )
+        HttpResponse::builder().header("content-type", "text/html").body(
+            GraphiQLSource::build()
+                .endpoint(endpoint.as_str())
+                .subscription_endpoint(endpoint.as_str())
+                .finish(),
+        )
     })
 }

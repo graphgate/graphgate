@@ -10,11 +10,7 @@ use super::{
 pub struct IntrospectionSchema;
 
 impl Resolver for IntrospectionSchema {
-    fn resolve(
-        &self,
-        selection_set: &IntrospectionSelectionSet,
-        schema: &ComposedSchema,
-    ) -> ConstValue {
+    fn resolve(&self, selection_set: &IntrospectionSelectionSet, schema: &ComposedSchema) -> ConstValue {
         resolve_obj(selection_set, |name, field| match name {
             "types" => ConstValue::List(
                 schema
@@ -30,17 +26,14 @@ impl Resolver for IntrospectionSchema {
                     .get(schema.query_type())
                     .expect("The query validator should find this error.");
                 IntrospectionType::Named(query_type).resolve(&field.selection_set, schema)
-            }
+            },
             "mutationType" => {
-                let mutation_type = schema
-                    .mutation_type
-                    .as_ref()
-                    .and_then(|name| schema.types.get(name));
+                let mutation_type = schema.mutation_type.as_ref().and_then(|name| schema.types.get(name));
                 match mutation_type {
                     Some(ty) => IntrospectionType::Named(ty).resolve(&field.selection_set, schema),
                     None => ConstValue::Null,
                 }
-            }
+            },
             "subscriptionType" => {
                 let subscription_type = schema
                     .subscription_type
@@ -50,7 +43,7 @@ impl Resolver for IntrospectionSchema {
                     Some(ty) => IntrospectionType::Named(ty).resolve(&field.selection_set, schema),
                     None => ConstValue::Null,
                 }
-            }
+            },
             _ => ConstValue::Null,
         })
     }

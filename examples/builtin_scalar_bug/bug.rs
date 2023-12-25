@@ -46,6 +46,7 @@ impl Query {
     async fn builtin_scalar(&self) -> String {
         "Hi, I'm builtin".into()
     }
+
     async fn custom_scalar(&self) -> CustomString {
         CustomString("Hi, I'm custom".into())
     }
@@ -68,13 +69,8 @@ async fn main() {
     let routes = graphql(schema.clone())
         .and(warp::post())
         .and_then(
-            |(schema, request): (
-                Schema<Query, EmptyMutation, EmptySubscription>,
-                async_graphql::Request,
-            )| async move {
-                Ok::<_, Infallible>(
-                    warp::reply::json(&schema.execute(request).await).into_response(),
-                )
+            |(schema, request): (Schema<Query, EmptyMutation, EmptySubscription>, async_graphql::Request)| async move {
+                Ok::<_, Infallible>(warp::reply::json(&schema.execute(request).await).into_response())
             },
         )
         .or(graphql_subscription(schema));

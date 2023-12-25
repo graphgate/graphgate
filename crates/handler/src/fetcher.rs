@@ -59,8 +59,6 @@ impl Fetcher for WebSocketFetcher {
         self.controller
             .subscribe(format!("__req{}", id), service, request, tx)
             .await?;
-        rx.recv()
-            .await
-            .ok_or_else(|| anyhow::anyhow!("Connection closed."))
+        rx.recv().await.ok_or_else(|| anyhow::anyhow!("Connection closed."))
     }
 }

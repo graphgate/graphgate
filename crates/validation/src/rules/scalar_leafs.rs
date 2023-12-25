@@ -11,10 +11,13 @@ impl<'a> Visitor<'a> for ScalarLeafs {
             if let Some(schema_field) = ty.field_by_name(&field.node.name.node) {
                 if let Some(ty) = ctx.schema.concrete_type_by_name(&schema_field.ty) {
                     if ty.is_leaf() && !field.node.selection_set.node.items.is_empty() {
-                        ctx.report_error(vec![field.pos], format!(
-                            "Field \"{}\" must not have a selection since type \"{}\" has no subfields",
-                            field.node.name, ty.name
-                        ))
+                        ctx.report_error(
+                            vec![field.pos],
+                            format!(
+                                "Field \"{}\" must not have a selection since type \"{}\" has no subfields",
+                                field.node.name, ty.name
+                            ),
+                        )
                     } else if !ty.is_leaf() && field.node.selection_set.node.items.is_empty() {
                         ctx.report_error(
                             vec![field.pos],

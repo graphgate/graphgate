@@ -11,14 +11,10 @@ impl ValueExt for Value {
             match value {
                 Value::Variable(name) => {
                     vars.insert(name);
-                }
-                Value::List(values) => values
-                    .iter()
-                    .for_each(|value| referenced_variables_to_set(value, vars)),
-                Value::Object(obj) => obj
-                    .values()
-                    .for_each(|value| referenced_variables_to_set(value, vars)),
-                _ => {}
+                },
+                Value::List(values) => values.iter().for_each(|value| referenced_variables_to_set(value, vars)),
+                Value::Object(obj) => obj.values().for_each(|value| referenced_variables_to_set(value, vars)),
+                _ => {},
             }
         }
 

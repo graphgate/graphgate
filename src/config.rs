@@ -102,25 +102,14 @@ impl Config {
         let mut env_config = Config::parse();
 
         if Path::exists(&env_config.file) {
-            let file_config = std::fs::read_to_string(&env_config.file).with_context(|| {
-                format!(
-                    "Failed to read config file '{}'.",
-                    &env_config.file.display()
-                )
-            })?;
-            let mut file_config: Config = toml::from_str(&file_config).with_context(|| {
-                format!(
-                    "Failed to parse config file '{}'.",
-                    &env_config.file.display()
-                )
-            })?;
+            let file_config = std::fs::read_to_string(&env_config.file)
+                .with_context(|| format!("Failed to read config file '{}'.", &env_config.file.display()))?;
+            let mut file_config: Config = toml::from_str(&file_config)
+                .with_context(|| format!("Failed to parse config file '{}'.", &env_config.file.display()))?;
 
             // Override service URI with env var if set
             for service in &mut file_config.services {
-                if let Ok(addr) = std::env::var(format!(
-                    "SERVICE_{}_ADDR",
-                    service.name.to_ascii_uppercase()
-                )) {
+                if let Ok(addr) = std::env::var(format!("SERVICE_{}_ADDR", service.name.to_ascii_uppercase())) {
                     tracing::info!("Overriding service '{}' addr with env var", service.name);
                     service.addr = addr;
                 }
@@ -164,8 +153,7 @@ impl Config {
                         .unwrap_or("false".to_string())
                         .parse()
                         .unwrap_or_default(),
-                    query_path: if let Ok(path) =
-                        std::env::var(format!("{}{}_QUERY_PATH", env_prefix, service_prefix))
+                    query_path: if let Ok(path) = std::env::var(format!("{}{}_QUERY_PATH", env_prefix, service_prefix))
                     {
                         Some(path)
                     } else {
@@ -178,10 +166,9 @@ impl Config {
                     } else {
                         None
                     },
-                    introspection_path: if let Ok(path) = std::env::var(format!(
-                        "{}{}_INTROSPECTION_PATH",
-                        env_prefix, service_prefix
-                    )) {
+                    introspection_path: if let Ok(path) =
+                        std::env::var(format!("{}{}_INTROSPECTION_PATH", env_prefix, service_prefix))
+                    {
                         Some(path)
                     } else {
                         None
@@ -243,15 +230,12 @@ mod tests {
 
         let parsed_config = Config::try_parse().expect("Failed to parse config");
         assert_eq!(parsed_config.bind, "127.0.0.1:8000");
-        assert_eq!(
-            parsed_config.file.display().to_string(),
-            "does_not_exist.toml"
-        );
+        assert_eq!(parsed_config.file.display().to_string(), "does_not_exist.toml");
         assert_eq!(parsed_config.gateway_name, "graphgate");
-        assert_eq!(
-            parsed_config.forward_headers,
-            vec!["authorization".to_string(), "x-test".to_string()]
-        );
+        assert_eq!(parsed_config.forward_headers, vec![
+            "authorization".to_string(),
+            "x-test".to_string()
+        ]);
     }
 
     #[tokio::test]
@@ -284,10 +268,7 @@ mod tests {
         std::env::set_var("SERVICE_TESTENV_TLS", "true");
         std::env::set_var("SERVICE_TESTENV_QUERY_PATH", "/graphql");
         std::env::set_var("SERVICE_TESTENV_SUBSCRIBE_PATH", "/graphql/subscribe");
-        std::env::set_var(
-            "SERVICE_TESTENV_INTROSPECTION_PATH",
-            "/graphql/introspection",
-        );
+        std::env::set_var("SERVICE_TESTENV_INTROSPECTION_PATH", "/graphql/introspection");
         std::env::set_var("SERVICE_TESTENV_WEBSOCKET_PATH", "/graphql/ws");
 
         let parsed_config = Config::try_parse().expect("Failed to parse config");
@@ -296,25 +277,18 @@ mod tests {
         assert_eq!(service_config.addr, "http://test.tld");
         assert!(service_config.tls);
         assert_eq!(service_config.query_path, Some("/graphql".to_string()));
-        assert_eq!(
-            service_config.subscribe_path,
-            Some("/graphql/subscribe".to_string())
-        );
+        assert_eq!(service_config.subscribe_path, Some("/graphql/subscribe".to_string()));
         assert_eq!(
             service_config.introspection_path,
             Some("/graphql/introspection".to_string())
         );
-        assert_eq!(
-            service_config.websocket_path,
-            Some("/graphql/ws".to_string())
-        );
+        assert_eq!(service_config.websocket_path, Some("/graphql/ws".to_string()));
     }
 
     #[tokio::test]
     #[serial]
     async fn parse_config_file() {
-        let mut tmpfile =
-            NamedTempFile::with_prefix("graphgate").expect("Failed to create temp config");
+        let mut tmpfile = NamedTempFile::with_prefix("graphgate").expect("Failed to create temp config");
         write!(
             tmpfile,
             r#"
@@ -335,31 +309,16 @@ mod tests {
 
         let parsed_config = Config::try_parse().expect("Failed to parse config");
         assert_eq!(parsed_config.bind, "0.0.0.0:4000");
-        assert_eq!(
-            parsed_config.forward_headers,
-            vec!["authorization".to_string()]
-        );
+        assert_eq!(parsed_config.forward_headers, vec!["authorization".to_string()]);
         assert_eq!(parsed_config.services.len(), 1);
 
         let service_config = parsed_config.services.first().expect("No service config");
         assert_eq!(service_config.name, "test");
         assert_eq!(service_config.addr, "test:4000");
-        assert_eq!(
-            service_config.query_path,
-            Some("/public/graphql".to_string())
-        );
-        assert_eq!(
-            service_config.subscribe_path,
-            Some("/public/graphql".to_string())
-        );
-        assert_eq!(
-            service_config.introspection_path,
-            Some("/public/graphql".to_string())
-        );
-        assert_eq!(
-            service_config.websocket_path,
-            Some("/public/graphql".to_string())
-        );
+        assert_eq!(service_config.query_path, Some("/public/graphql".to_string()));
+        assert_eq!(service_config.subscribe_path, Some("/public/graphql".to_string()));
+        assert_eq!(service_config.introspection_path, Some("/public/graphql".to_string()));
+        assert_eq!(service_config.websocket_path, Some("/public/graphql".to_string()));
 
         std::env::remove_var("CONFIG_FILE");
         std::env::remove_var("BIND");
@@ -368,8 +327,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn parse_config_file_no_auth() {
-        let mut tmpfile =
-            NamedTempFile::with_prefix("graphgate").expect("Failed to create temp config");
+        let mut tmpfile = NamedTempFile::with_prefix("graphgate").expect("Failed to create temp config");
         write!(
             tmpfile,
             r#"
@@ -390,8 +348,7 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn parse_config_file_service_addr_override() {
-        let mut tmpfile =
-            NamedTempFile::with_prefix("graphgate").expect("Failed to create temp config");
+        let mut tmpfile = NamedTempFile::with_prefix("graphgate").expect("Failed to create temp config");
         write!(
             tmpfile,
             r#"

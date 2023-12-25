@@ -9,8 +9,5 @@ pub enum CombineError {
     DefinitionConflicted { type_name: String },
 
     #[error("Field '{type_name}.{field_name}' definition conflicted.")]
-    FieldConflicted {
-        type_name: String,
-        field_name: String,
-    },
+    FieldConflicted { type_name: String, field_name: String },
 }

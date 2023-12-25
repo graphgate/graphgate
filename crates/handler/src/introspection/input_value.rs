@@ -10,11 +10,7 @@ use super::{
 pub struct IntrospectionInputValue<'a>(pub &'a MetaInputValue);
 
 impl<'a> Resolver for IntrospectionInputValue<'a> {
-    fn resolve(
-        &self,
-        selection_set: &IntrospectionSelectionSet,
-        schema: &ComposedSchema,
-    ) -> ConstValue {
+    fn resolve(&self, selection_set: &IntrospectionSelectionSet, schema: &ComposedSchema) -> ConstValue {
         resolve_obj(selection_set, |name, field| match name {
             "name" => ConstValue::String(self.0.name.to_string()),
             "description" => self
@@ -23,9 +19,7 @@ impl<'a> Resolver for IntrospectionInputValue<'a> {
                 .as_ref()
                 .map(|description| ConstValue::String(description.clone()))
                 .unwrap_or_default(),
-            "type" => {
-                IntrospectionType::new(&self.0.ty, schema).resolve(&field.selection_set, schema)
-            }
+            "type" => IntrospectionType::new(&self.0.ty, schema).resolve(&field.selection_set, schema),
             "defaultValue" => match &self.0.default_value {
                 Some(value) => ConstValue::String(value.to_string()),
                 None => ConstValue::Null,

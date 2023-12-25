@@ -75,13 +75,8 @@ async fn main() {
     let routes = graphql(schema.clone())
         .and(warp::post())
         .and_then(
-            |(schema, request): (
-                Schema<Query, EmptyMutation, Subscription>,
-                async_graphql::Request,
-            )| async move {
-                Ok::<_, Infallible>(
-                    warp::reply::json(&schema.execute(request).await).into_response(),
-                )
+            |(schema, request): (Schema<Query, EmptyMutation, Subscription>, async_graphql::Request)| async move {
+                Ok::<_, Infallible>(warp::reply::json(&schema.execute(request).await).into_response())
             },
         )
         .or(graphql_subscription(schema));

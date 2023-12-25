@@ -49,11 +49,7 @@ impl<'a> IntrospectionType<'a> {
 }
 
 impl<'a> Resolver for IntrospectionType<'a> {
-    fn resolve(
-        &self,
-        selection_set: &IntrospectionSelectionSet,
-        schema: &ComposedSchema,
-    ) -> ConstValue {
+    fn resolve(&self, selection_set: &IntrospectionSelectionSet, schema: &ComposedSchema) -> ConstValue {
         resolve_obj(selection_set, |name, field| match name {
             "kind" => match self {
                 Self::Named(ty) => match ty.kind {
@@ -80,24 +76,20 @@ impl<'a> Resolver for IntrospectionType<'a> {
                 _ => ConstValue::Null,
             },
             "fields" => match self {
-                Self::Named(ty)
-                    if ty.kind == TypeKind::Object || ty.kind == TypeKind::Interface =>
-                {
-                    ConstValue::List(
-                        ty.fields
-                            .values()
-                            .filter(|item| !item.name.starts_with("__"))
-                            .filter(|item| {
-                                if is_include_deprecated(&field.arguments) {
-                                    true
-                                } else {
-                                    !item.deprecation.is_deprecated()
-                                }
-                            })
-                            .map(|f| IntrospectionField(f).resolve(&field.selection_set, schema))
-                            .collect(),
-                    )
-                }
+                Self::Named(ty) if ty.kind == TypeKind::Object || ty.kind == TypeKind::Interface => ConstValue::List(
+                    ty.fields
+                        .values()
+                        .filter(|item| !item.name.starts_with("__"))
+                        .filter(|item| {
+                            if is_include_deprecated(&field.arguments) {
+                                true
+                            } else {
+                                !item.deprecation.is_deprecated()
+                            }
+                        })
+                        .map(|f| IntrospectionField(f).resolve(&field.selection_set, schema))
+                        .collect(),
+                ),
                 _ => ConstValue::Null,
             },
             "interfaces" => match self {
@@ -118,22 +110,20 @@ impl<'a> Resolver for IntrospectionType<'a> {
                 _ => ConstValue::Null,
             },
             "possibleTypes" => match self {
-                Self::Named(ty) if ty.kind == TypeKind::Interface || ty.kind == TypeKind::Union => {
-                    ConstValue::List(
-                        ty.possible_types
-                            .iter()
-                            .map(|name| {
-                                IntrospectionType::Named(
-                                    schema
-                                        .types
-                                        .get(name)
-                                        .expect("The query validator should find this error."),
-                                )
-                                .resolve(&field.selection_set, schema)
-                            })
-                            .collect(),
-                    )
-                }
+                Self::Named(ty) if ty.kind == TypeKind::Interface || ty.kind == TypeKind::Union => ConstValue::List(
+                    ty.possible_types
+                        .iter()
+                        .map(|name| {
+                            IntrospectionType::Named(
+                                schema
+                                    .types
+                                    .get(name)
+                                    .expect("The query validator should find this error."),
+                            )
+                            .resolve(&field.selection_set, schema)
+                        })
+                        .collect(),
+                ),
                 _ => ConstValue::Null,
             },
             "enumValues" => match self {
@@ -147,9 +137,7 @@ impl<'a> Resolver for IntrospectionType<'a> {
                                 !item.deprecation.is_deprecated()
                             }
                         })
-                        .map(|value| {
-                            IntrospectionEnumValue(value).resolve(&field.selection_set, schema)
-                        })
+                        .map(|value| IntrospectionEnumValue(value).resolve(&field.selection_set, schema))
                         .collect(),
                 ),
                 _ => ConstValue::Null,
@@ -158,9 +146,7 @@ impl<'a> Resolver for IntrospectionType<'a> {
                 Self::Named(ty) if ty.kind == TypeKind::InputObject => ConstValue::List(
                     ty.input_fields
                         .values()
-                        .map(|value| {
-                            IntrospectionInputValue(value).resolve(&field.selection_set, schema)
-                        })
+                        .map(|value| IntrospectionInputValue(value).resolve(&field.selection_set, schema))
                         .collect(),
                 ),
                 _ => ConstValue::Null,

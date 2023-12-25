@@ -8,7 +8,8 @@ use value::{Name, Value};
 
 use crate::{
     utils::{is_valid_input_value, PathNode},
-    Visitor, VisitorContext,
+    Visitor,
+    VisitorContext,
 };
 
 #[derive(Default)]
@@ -17,11 +18,7 @@ pub struct ArgumentsOfCorrectType<'a> {
 }
 
 impl<'a> Visitor<'a> for ArgumentsOfCorrectType<'a> {
-    fn enter_directive(
-        &mut self,
-        ctx: &mut VisitorContext<'a>,
-        directive: &'a Positioned<Directive>,
-    ) {
+    fn enter_directive(&mut self, ctx: &mut VisitorContext<'a>, directive: &'a Positioned<Directive>) {
         self.current_args = ctx
             .schema
             .directives
@@ -29,11 +26,7 @@ impl<'a> Visitor<'a> for ArgumentsOfCorrectType<'a> {
             .map(|d| &d.arguments);
     }
 
-    fn exit_directive(
-        &mut self,
-        _ctx: &mut VisitorContext<'a>,
-        _directive: &'a Positioned<Directive>,
-    ) {
+    fn exit_directive(&mut self, _ctx: &mut VisitorContext<'a>, _directive: &'a Positioned<Directive>) {
         self.current_args = None;
     }
 
@@ -43,30 +36,17 @@ impl<'a> Visitor<'a> for ArgumentsOfCorrectType<'a> {
         name: &'a Positioned<Name>,
         value: &'a Positioned<Value>,
     ) {
-        if let Some(arg) = self
-            .current_args
-            .and_then(|args| args.get(name.node.as_str()))
-        {
+        if let Some(arg) = self.current_args.and_then(|args| args.get(name.node.as_str())) {
             let value = value
                 .node
                 .clone()
-                .into_const_with(|var_name| {
-                    ctx.variables.get(&var_name).map(Clone::clone).ok_or(())
-                })
+                .into_const_with(|var_name| ctx.variables.get(&var_name).map(Clone::clone).ok_or(()))
                 .ok();
 
-            if let Some(reason) = value.and_then(|value| {
-                is_valid_input_value(
-                    ctx.schema,
-                    &arg.ty,
-                    &value,
-                    PathNode::new(arg.name.as_str()),
-                )
-            }) {
-                ctx.report_error(
-                    vec![name.pos],
-                    format!("Invalid value for argument {}", reason),
-                );
+            if let Some(reason) = value
+                .and_then(|value| is_valid_input_value(ctx.schema, &arg.ty, &value, PathNode::new(arg.name.as_str())))
+            {
+                ctx.report_error(vec![name.pos], format!("Invalid value for argument {}", reason));
             }
         }
     }

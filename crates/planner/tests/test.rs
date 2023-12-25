@@ -35,8 +35,7 @@ fn test() {
             let planner_json = s.next().unwrap();
 
             let document = parser::parse_query(graphql).unwrap();
-            let builder = PlanBuilder::new(&schema, document)
-                .variables(serde_json::from_str(variables).unwrap());
+            let builder = PlanBuilder::new(&schema, document).variables(serde_json::from_str(variables).unwrap());
             let expect_node: serde_json::Value = serde_json::from_str(planner_json).unwrap();
             let actual_node = serde_json::to_value(&builder.plan().unwrap()).unwrap();
 

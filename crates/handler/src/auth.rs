@@ -49,16 +49,12 @@ impl Auth {
             .keys
             .into_iter()
             .filter_map(|jwk| {
-                let res =
-                    DecodingKey::from_jwk(&jwk).context("failed to create decoding key from jwk");
+                let res = DecodingKey::from_jwk(&jwk).context("failed to create decoding key from jwk");
                 jwk.common.key_id.map(|kid| res.map(|key| (kid, key)))
             })
             .collect::<Result<HashMap<_, _>, _>>()?;
 
-        Ok(Self {
-            config,
-            decoding_keys,
-        })
+        Ok(Self { config, decoding_keys })
     }
 }
 
@@ -82,16 +78,12 @@ pub enum AuthError {
 
 impl warp::reject::Reject for AuthError {}
 
-pub fn with_auth_state(
-    auth: Arc<Auth>,
-) -> impl Filter<Extract = (Arc<Auth>,), Error = Infallible> + Clone {
+pub fn with_auth_state(auth: Arc<Auth>) -> impl Filter<Extract = (Arc<Auth>,), Error = Infallible> + Clone {
     warp::any().map(move || auth.clone())
 }
 
 pub fn with_auth(auth: Arc<Auth>) -> impl Filter<Extract = ((),), Error = Rejection> + Clone {
-    headers_cloned()
-        .and(with_auth_state(auth))
-        .and_then(jwt_auth_validate)
+    headers_cloned().and(with_auth_state(auth)).and_then(jwt_auth_validate)
 }
 
 async fn jwt_auth_validate(header_map: HeaderMap, auth: Arc<Auth>) -> Result<(), Rejection> {
@@ -116,10 +108,7 @@ async fn jwt_auth_validate(header_map: HeaderMap, auth: Arc<Auth>) -> Result<(),
 
         let kid = token_header.kid.ok_or_else(|| AuthError::MissingKid)?;
 
-        let decoding_key = auth
-            .decoding_keys
-            .get(&kid)
-            .ok_or_else(|| AuthError::InvalidKid)?;
+        let decoding_key = auth.decoding_keys.get(&kid).ok_or_else(|| AuthError::InvalidKid)?;
 
         jsonwebtoken::decode::<serde_json::Value>(
             token,

@@ -7,11 +7,7 @@ use super::resolver::{resolve_obj, Resolver};
 pub struct IntrospectionEnumValue<'a>(pub &'a MetaEnumValue);
 
 impl<'a> Resolver for IntrospectionEnumValue<'a> {
-    fn resolve(
-        &self,
-        selection_set: &IntrospectionSelectionSet,
-        _schema: &ComposedSchema,
-    ) -> ConstValue {
+    fn resolve(&self, selection_set: &IntrospectionSelectionSet, _schema: &ComposedSchema) -> ConstValue {
         resolve_obj(selection_set, |name, _field| match name {
             "name" => ConstValue::String(self.0.value.to_string()),
             "description" => self

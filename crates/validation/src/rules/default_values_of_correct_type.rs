@@ -2,7 +2,8 @@ use parser::{types::VariableDefinition, Positioned};
 
 use crate::{
     utils::{is_valid_input_value, PathNode},
-    Visitor, VisitorContext,
+    Visitor,
+    VisitorContext,
 };
 
 #[derive(Default)]
@@ -16,10 +17,13 @@ impl<'a> Visitor<'a> for DefaultValuesOfCorrectType {
     ) {
         if let Some(value) = &variable_definition.node.default_value {
             if !variable_definition.node.var_type.node.nullable {
-                ctx.report_error(vec![variable_definition.pos],format!(
-                    "Argument \"{}\" has type \"{}\" and is not nullable, so it can't have a default value",
-                    variable_definition.node.name, variable_definition.node.var_type,
-                ));
+                ctx.report_error(
+                    vec![variable_definition.pos],
+                    format!(
+                        "Argument \"{}\" has type \"{}\" and is not nullable, so it can't have a default value",
+                        variable_definition.node.name, variable_definition.node.var_type,
+                    ),
+                );
             } else if let Some(reason) = is_valid_input_value(
                 ctx.schema,
                 &variable_definition.node.var_type.node,

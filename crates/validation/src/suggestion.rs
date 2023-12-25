@@ -18,9 +18,7 @@ fn levenshtein_distance(s1: &str, s2: &str) -> usize {
 }
 
 pub fn make_suggestion<'a, I>(prefix: &str, options: I, input: &str) -> Option<String>
-where
-    I: Iterator<Item = &'a str>,
-{
+where I: Iterator<Item = &'a str> {
     let mut selected = Vec::new();
     let mut distances = HashMap::new();
 
@@ -38,8 +36,7 @@ where
     }
     selected.sort_by(|a, b| distances[a].cmp(&distances[b]));
 
-    let mut suggestion =
-        String::with_capacity(prefix.len() + selected.iter().map(|s| s.len() + 5).sum::<usize>());
+    let mut suggestion = String::with_capacity(prefix.len() + selected.iter().map(|s| s.len() + 5).sum::<usize>());
     suggestion.push_str(prefix);
     suggestion.push(' ');
 

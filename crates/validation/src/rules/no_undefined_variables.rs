@@ -2,11 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use graphgate_schema::ValueExt;
 use parser::{
-    types::{
-        ExecutableDocument, FragmentDefinition, FragmentSpread, OperationDefinition,
-        VariableDefinition,
-    },
-    Pos, Positioned,
+    types::{ExecutableDocument, FragmentDefinition, FragmentSpread, OperationDefinition, VariableDefinition},
+    Pos,
+    Positioned,
 };
 use value::{Name, Value};
 
@@ -55,21 +53,13 @@ impl<'a> Visitor<'a> for NoUndefinedVariables<'a> {
         for (op_name, (def_pos, def_vars)) in &self.defined_variables {
             let mut unused = Vec::new();
             let mut visited = HashSet::new();
-            self.find_undef_vars(
-                &Scope::Operation(*op_name),
-                def_vars,
-                &mut unused,
-                &mut visited,
-            );
+            self.find_undef_vars(&Scope::Operation(*op_name), def_vars, &mut unused, &mut visited);
 
             for (var, pos) in unused {
                 if let Some(op_name) = op_name {
                     ctx.report_error(
                         vec![*def_pos, pos],
-                        format!(
-                            r#"Variable "${}" is not defined by operation "{}""#,
-                            var, op_name
-                        ),
+                        format!(r#"Variable "${}" is not defined by operation "{}""#, var, op_name),
                     );
                 } else {
                     ctx.report_error(vec![pos], format!(r#"Variable "${}" is not defined"#, var));
@@ -118,13 +108,10 @@ impl<'a> Visitor<'a> for NoUndefinedVariables<'a> {
         value: &'a Positioned<Value>,
     ) {
         if let Some(ref scope) = self.current_scope {
-            self.used_variables.entry(*scope).or_default().extend(
-                value
-                    .node
-                    .referenced_variables()
-                    .into_iter()
-                    .map(|n| (n, name.pos)),
-            );
+            self.used_variables
+                .entry(*scope)
+                .or_default()
+                .extend(value.node.referenced_variables().into_iter().map(|n| (n, name.pos)));
         }
     }
 

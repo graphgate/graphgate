@@ -35,14 +35,8 @@ impl Protocols {
     #[inline]
     pub fn subscribe_message<'a>(&self, id: &'a str, request: Request) -> ClientMessage<'a> {
         match self {
-            Protocols::SubscriptionsTransportWS => ClientMessage::Start {
-                id,
-                payload: request,
-            },
-            Protocols::GraphQLWS => ClientMessage::Subscribe {
-                id,
-                payload: request,
-            },
+            Protocols::SubscriptionsTransportWS => ClientMessage::Start { id, payload: request },
+            Protocols::GraphQLWS => ClientMessage::Subscribe { id, payload: request },
         }
     }
 

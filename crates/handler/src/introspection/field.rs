@@ -11,11 +11,7 @@ use super::{
 pub struct IntrospectionField<'a>(pub &'a MetaField);
 
 impl<'a> Resolver for IntrospectionField<'a> {
-    fn resolve(
-        &self,
-        selection_set: &IntrospectionSelectionSet,
-        schema: &ComposedSchema,
-    ) -> ConstValue {
+    fn resolve(&self, selection_set: &IntrospectionSelectionSet, schema: &ComposedSchema) -> ConstValue {
         resolve_obj(selection_set, |name, field| match name {
             "name" => ConstValue::String(self.0.name.to_string()),
             "description" => self
@@ -32,9 +28,7 @@ impl<'a> Resolver for IntrospectionField<'a> {
                     .map(|arg| IntrospectionInputValue(arg).resolve(&field.selection_set, schema))
                     .collect(),
             ),
-            "type" => {
-                IntrospectionType::new(&self.0.ty, schema).resolve(&field.selection_set, schema)
-            }
+            "type" => IntrospectionType::new(&self.0.ty, schema).resolve(&field.selection_set, schema),
             "deprecationReason" => self
                 .0
                 .deprecation

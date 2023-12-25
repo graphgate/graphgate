@@ -1,7 +1,13 @@
 use parser::{
     types::{
-        Directive, DirectiveLocation, Field, FragmentDefinition, FragmentSpread, InlineFragment,
-        OperationDefinition, OperationType,
+        Directive,
+        DirectiveLocation,
+        Field,
+        FragmentDefinition,
+        FragmentSpread,
+        InlineFragment,
+        OperationDefinition,
+        OperationType,
     },
     Positioned,
 };
@@ -21,12 +27,11 @@ impl<'a> Visitor<'a> for KnownDirectives {
         _name: Option<&'a Name>,
         operation_definition: &'a Positioned<OperationDefinition>,
     ) {
-        self.location_stack
-            .push(match &operation_definition.node.ty {
-                OperationType::Query => DirectiveLocation::Query,
-                OperationType::Mutation => DirectiveLocation::Mutation,
-                OperationType::Subscription => DirectiveLocation::Subscription,
-            });
+        self.location_stack.push(match &operation_definition.node.ty {
+            OperationType::Query => DirectiveLocation::Query,
+            OperationType::Mutation => DirectiveLocation::Mutation,
+            OperationType::Subscription => DirectiveLocation::Subscription,
+        });
     }
 
     fn exit_operation_definition(
@@ -44,8 +49,7 @@ impl<'a> Visitor<'a> for KnownDirectives {
         _name: &'a Name,
         _fragment_definition: &'a Positioned<FragmentDefinition>,
     ) {
-        self.location_stack
-            .push(DirectiveLocation::FragmentDefinition);
+        self.location_stack.push(DirectiveLocation::FragmentDefinition);
     }
 
     fn exit_fragment_definition(
@@ -57,13 +61,8 @@ impl<'a> Visitor<'a> for KnownDirectives {
         self.location_stack.pop();
     }
 
-    fn enter_directive(
-        &mut self,
-        ctx: &mut VisitorContext<'a>,
-        directive: &'a Positioned<Directive>,
-    ) {
-        if let Some(schema_directive) = ctx.schema.directives.get(directive.node.name.node.as_str())
-        {
+    fn enter_directive(&mut self, ctx: &mut VisitorContext<'a>, directive: &'a Positioned<Directive>) {
+        if let Some(schema_directive) = ctx.schema.directives.get(directive.node.name.node.as_str()) {
             if let Some(current_location) = self.location_stack.last() {
                 if !schema_directive.locations.contains(current_location) {
                     ctx.report_error(

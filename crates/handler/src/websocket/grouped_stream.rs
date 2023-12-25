@@ -65,15 +65,13 @@ where
 
         for (key, stream) in self.streams.iter_mut() {
             match stream.poll_next_unpin(cx) {
-                Poll::Ready(Some(value)) => {
-                    return Poll::Ready(Some(StreamEvent::Data(key.clone(), value)))
-                }
+                Poll::Ready(Some(value)) => return Poll::Ready(Some(StreamEvent::Data(key.clone(), value))),
                 Poll::Ready(None) => {
                     let key = key.clone();
                     self.streams.remove(&key);
                     return Poll::Ready(Some(StreamEvent::Complete(key)));
-                }
-                Poll::Pending => {}
+                },
+                Poll::Pending => {},
             }
         }
 

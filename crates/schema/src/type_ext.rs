@@ -17,9 +17,7 @@ impl TypeExt for Type {
         if !sub.nullable || self.nullable {
             match (&self.base, &sub.base) {
                 (BaseType::Named(super_type), BaseType::Named(sub_type)) => super_type == sub_type,
-                (BaseType::List(super_type), BaseType::List(sub_type)) => {
-                    super_type.is_subtype(sub_type)
-                }
+                (BaseType::List(super_type), BaseType::List(sub_type)) => super_type.is_subtype(sub_type),
                 _ => false,
             }
         } else {

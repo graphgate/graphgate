@@ -16,7 +16,9 @@ use graphgate_handler::{
 };
 use graphgate_planner::{Response, ServerError};
 use opentelemetry::{
-    global, global::GlobalTracerProvider, sdk::metrics::MeterProvider,
+    global,
+    global::GlobalTracerProvider,
+    sdk::metrics::MeterProvider,
     trace::noop::NoopTracerProvider,
 };
 use prometheus::{Encoder, Registry, TextEncoder};
@@ -46,10 +48,10 @@ async fn update_route_table_in_k8s(shared_route_table: SharedRouteTable, gateway
                     shared_route_table.set_route_table(route_table.clone());
                     prev_route_table = Some(route_table);
                 }
-            }
+            },
             Err(err) => {
                 tracing::error!(error = %err, "Failed to find graphql services.");
-            }
+            },
         }
 
         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -79,16 +81,14 @@ fn init_tracer(config: &Config) -> Result<GlobalTracerProvider> {
             } else {
                 default_provider()
             }
-        }
+        },
         None => default_provider(),
     };
 
     Ok(uninstall)
 }
 
-pub fn metrics(
-    registry: Registry,
-) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+pub fn metrics(registry: Registry) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
     warp::path!("metrics").and(warp::get()).map({
         move || {
             let mut buffer = Vec::new();
@@ -100,10 +100,7 @@ pub fn metrics(
                     .body(err.to_string().into_bytes())
                     .unwrap();
             }
-            HttpResponse::builder()
-                .status(StatusCode::OK)
-                .body(buffer)
-                .unwrap()
+            HttpResponse::builder().status(StatusCode::OK).body(buffer).unwrap()
         }
     })
 }
@@ -115,10 +112,7 @@ async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Inf
         (StatusCode::OK, e.to_string())
     } else {
         tracing::error!("unhandled error: {:?}", err);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Internal Server Error".to_string(),
-        )
+        (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error".to_string())
     };
 
     let res = warp::reply::json(&Response {
@@ -218,8 +212,7 @@ async fn main() -> Result<()> {
         .or(preflight_request)
         .with(cors)
         .recover(handle_rejection);
-    let (addr, server) =
-        warp::serve(routes).bind_with_graceful_shutdown(bind_addr, signal::ctrl_c().map(|_| ()));
+    let (addr, server) = warp::serve(routes).bind_with_graceful_shutdown(bind_addr, signal::ctrl_c().map(|_| ()));
 
     tracing::info!(addr = %addr, "Listening");
     server.await;

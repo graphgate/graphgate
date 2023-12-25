@@ -11,11 +11,7 @@ use super::{
 pub struct IntrospectionRoot;
 
 impl Resolver for IntrospectionRoot {
-    fn resolve(
-        &self,
-        selection_set: &IntrospectionSelectionSet,
-        schema: &ComposedSchema,
-    ) -> ConstValue {
+    fn resolve(&self, selection_set: &IntrospectionSelectionSet, schema: &ComposedSchema) -> ConstValue {
         resolve_obj(selection_set, |name, field| match name {
             "__schema" => IntrospectionSchema.resolve(&field.selection_set, schema),
             "__type" => {
@@ -25,7 +21,7 @@ impl Resolver for IntrospectionRoot {
                     }
                 }
                 ConstValue::Null
-            }
+            },
             _ => ConstValue::Null,
         })
     }

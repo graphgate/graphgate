@@ -6,7 +6,13 @@ mod type_ext;
 mod value_ext;
 
 pub use composed_schema::{
-    ComposedSchema, Deprecation, KeyFields, MetaEnumValue, MetaField, MetaInputValue, MetaType,
+    ComposedSchema,
+    Deprecation,
+    KeyFields,
+    MetaEnumValue,
+    MetaField,
+    MetaInputValue,
+    MetaType,
     TypeKind,
 };
 pub use error::CombineError;

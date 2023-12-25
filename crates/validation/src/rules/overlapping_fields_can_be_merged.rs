@@ -11,11 +11,7 @@ use crate::{Visitor, VisitorContext};
 pub struct OverlappingFieldsCanBeMerged;
 
 impl<'a> Visitor<'a> for OverlappingFieldsCanBeMerged {
-    fn enter_selection_set(
-        &mut self,
-        ctx: &mut VisitorContext<'a>,
-        selection_set: &'a Positioned<SelectionSet>,
-    ) {
+    fn enter_selection_set(&mut self, ctx: &mut VisitorContext<'a>, selection_set: &'a Positioned<SelectionSet>) {
         let mut find_conflicts = FindConflicts {
             outputs: Default::default(),
             ctx,
@@ -41,17 +37,15 @@ impl<'a, 'ctx> FindConflicts<'a, 'ctx> {
                         .map(|name| &name.node)
                         .unwrap_or_else(|| &field.node.name.node);
                     self.add_output(output_name, field);
-                }
+                },
                 Selection::InlineFragment(inline_fragment) => {
                     self.find(&inline_fragment.node.selection_set);
-                }
+                },
                 Selection::FragmentSpread(fragment_spread) => {
-                    if let Some(fragment) =
-                        self.ctx.fragment(&fragment_spread.node.fragment_name.node)
-                    {
+                    if let Some(fragment) = self.ctx.fragment(&fragment_spread.node.fragment_name.node) {
                         self.find(&fragment.node.selection_set);
                     }
-                }
+                },
             }
         }
     }
