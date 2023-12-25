@@ -170,9 +170,9 @@ impl SharedRouteTable {
                             extensions: Default::default(),
                             headers: Default::default(),
                         })
-                        .unwrap(),
+                        .unwrap_or_default(),
                     )
-                    .unwrap();
+                    .unwrap_or_default();
             }
         };
 

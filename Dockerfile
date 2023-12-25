@@ -1,44 +1,23 @@
-###
-# Builder
-###
-FROM rust:latest as builder
+FROM rust:alpine as builder
 
-RUN rustup target add x86_64-unknown-linux-musl
-RUN apt update && apt install -y musl-tools musl-dev
-RUN update-ca-certificates
+ARG TARGETPLATFORM
 
-ENV USER=graphgate
-ENV UID=10001
-
-
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/nonexistent" \
-    --shell "/sbin/nologin" \
-    --no-create-home \
-    --uid "${UID}" \
-    "${USER}"
+RUN apk add --no-cache ca-certificates musl-dev openssl-dev openssl-libs-static \
+    && update-ca-certificates
 
 WORKDIR /graphgate
-
 COPY ./ .
 
-RUN cargo build --target x86_64-unknown-linux-musl --release
-
-###
-# Final Image
-###
+RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then ARCHITECTURE=x86_64; elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then ARCHITECTURE=aarch64; fi \
+    && rustup target add ${ARCHITECTURE}-unknown-linux-musl \
+    && cargo build --target ${ARCHITECTURE}-unknown-linux-musl --release \
+    && mv target/${ARCHITECTURE}-unknown-linux-musl/release/graphgate target/graphgate
 
 FROM scratch
-
-COPY --from=builder /etc/passwd /etc/passwd
-COPY --from=builder /etc/group /etc/group
-
 WORKDIR /graphgate
 
-COPY --from=builder /graphgate/target/x86_64-unknown-linux-musl/release/graphgate ./
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=builder /graphgate/target/graphgate ./
 
-USER graphgate:graphgate
-
+USER 1000
 ENTRYPOINT [ "/graphgate/graphgate" ]

@@ -3,6 +3,7 @@
 pub use service_route::{ServiceRoute, ServiceRouteTable};
 pub use shared_route_table::SharedRouteTable;
 
+pub mod auth;
 mod constants;
 mod executor;
 mod fetcher;

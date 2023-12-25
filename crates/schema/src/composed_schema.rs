@@ -69,21 +69,6 @@ impl Deref for KeyFields {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub struct FederationVersion(f32);
-
-impl Default for FederationVersion {
-    fn default() -> Self {
-        Self(1.0)
-    }
-}
-
-impl From<f32> for FederationVersion {
-    fn from(version: f32) -> Self {
-        Self(version)
-    }
-}
-
 #[derive(Debug, Eq, PartialEq)]
 pub struct MetaEnumValue {
     pub description: Option<String>,
@@ -187,7 +172,6 @@ pub struct ComposedSchema {
     pub subscription_type: Option<Name>,
     pub types: IndexMap<Name, MetaType>,
     pub directives: HashMap<Name, MetaDirective>,
-    pub federation_version: FederationVersion,
 }
 
 impl ComposedSchema {
@@ -277,11 +261,11 @@ impl ComposedSchema {
                                     input_fields: Default::default(),
                                 });
 
-                            if !is_extend {
-                                meta_type.owner = Some(service.clone());
-                            };
-
+                            let mut type_is_shareable = false;
                             for directive in type_definition.node.directives {
+                                if directive.node.name.node.as_str() == "shareable" {
+                                    type_is_shareable = true;
+                                }
                                 if directive.node.name.node.as_str() == "key" {
                                     if let Some(fields) =
                                         get_argument_str(&directive.node.arguments, "fields")
@@ -301,6 +285,10 @@ impl ComposedSchema {
                                 }
                             }
 
+                            if !is_extend && !type_is_shareable {
+                                meta_type.owner = Some(service.clone());
+                            };
+
                             meta_type
                                 .implements
                                 .extend(implements.into_iter().map(|implement| implement.node));
@@ -315,10 +303,14 @@ impl ComposedSchema {
                                 }
 
                                 if meta_type.fields.contains_key(&field.node.name.node) {
-                                    return Err(CombineError::FieldConflicted {
-                                        type_name: type_definition.node.name.node.to_string(),
-                                        field_name: field.node.name.node.to_string(),
-                                    });
+                                    let is_field_shareable =
+                                        has_directive(&field.node.directives, "shareable");
+                                    if !type_is_shareable && !is_field_shareable {
+                                        return Err(CombineError::FieldConflicted {
+                                            type_name: type_definition.node.name.node.to_string(),
+                                            field_name: field.node.name.node.to_string(),
+                                        });
+                                    }
                                 }
                                 let mut meta_field = convert_field_definition(field.node);
                                 if is_extend {
@@ -340,41 +332,7 @@ impl ComposedSchema {
                                 .insert(meta_type.name.clone(), meta_type);
                         }
                     }
-                    TypeSystemDefinition::Schema(schema_definition) => {
-                        if schema_definition.node.extend {
-                            let path = "/federation/v";
-                            let federation_link: Vec<String> = schema_definition
-                                .node
-                                .directives
-                                .iter()
-                                .filter_map(|d| {
-                                    if d.node.name.node.as_str() == "link"
-                                        && get_argument_str(&d.node.arguments, "url")
-                                            .map(|key| key.node.to_string())
-                                            .unwrap_or_default()
-                                            .contains(path)
-                                    {
-                                        get_argument_str(&d.node.arguments, "url")
-                                            .map(|key| key.node.to_ascii_lowercase())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect();
-                            if federation_link.len() == 1 {
-                                if let Some(version) = federation_link[0].rsplit_once(path) {
-                                    if let Ok(version) = version.1.parse::<f32>() {
-                                        if version > composed_schema.federation_version.0 {
-                                            composed_schema.federation_version = version.into();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if composed_schema.federation_version == FederationVersion::default() {
-                            return Err(CombineError::SchemaIsNotAllowed);
-                        }
-                    }
+                    TypeSystemDefinition::Schema(_schema_definition) => {}
                     TypeSystemDefinition::Directive(_directive_definition) => {}
                 }
             }
