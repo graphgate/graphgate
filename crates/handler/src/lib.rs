@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![allow(clippy::blocks_in_conditions)]
 
 pub use service_route::{ServiceRoute, ServiceRouteTable};
 pub use shared_route_table::SharedRouteTable;
