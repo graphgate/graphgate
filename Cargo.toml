@@ -27,8 +27,8 @@ serial_test.workspace = true
 tempfile.workspace = true
 tokio = { version = "1.32.0", features = ["rt-multi-thread", "time", "macros", "sync", "signal"] }
 toml = "0.8.2"
-tracing = "0.1.29"
-tracing-subscriber = { version = "0.3.6", features = ["env-filter"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
 value.workspace = true
 warp.workspace = true
 
@@ -87,5 +87,6 @@ tokio = { version = "1.32.0", features = ["net", "sync", "macros", "time"] }
 tokio-stream = "0.1.14"
 tokio-tungstenite = { version = "0.20.1", features = ["rustls-tls-native-roots"] }
 tracing = "0.1.29"
+tracing-subscriber = { version = "0.3.6", features = ["env-filter"] }
 value = { version = "6", package = "async-graphql-value" }
 warp = "0.3.6"

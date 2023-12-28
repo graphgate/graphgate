@@ -15,3 +15,6 @@ parser.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 value.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
