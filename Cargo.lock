@@ -909,6 +909,7 @@ dependencies = [
  "indexmap 2.0.2",
  "thiserror",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -1,0 +1,24 @@
+type Collectible @key(fields: "id") {
+        id: ID!
+        name: String!
+        collection: Collection!
+}
+
+type Collection @key(fields: "id", resolvable: false) {
+        id: ID!
+}
+
+
+
+
+type Query {
+        collectiblesAll: [Collectible!]!
+}
+
+
+extend schema @link(
+        url: "https://specs.apollo.dev/federation/v2.3",
+        import: ["@key", "@tag", "@shareable", "@inaccessible", "@override", "@external", "@provides", "@requires", "@composeDirective", "@interfaceObject"]
+)
+directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT

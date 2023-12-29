@@ -297,7 +297,17 @@ impl ComposedSchema {
 
                                 if meta_type.fields.contains_key(&field.node.name.node) {
                                     let is_field_shareable = has_directive(&field.node.directives, "shareable");
-                                    if !type_is_shareable && !is_field_shareable {
+                                    let is_field_entity_key = meta_type
+                                        .keys
+                                        .get(&service)
+                                        .map(|value| {
+                                            value
+                                                .iter()
+                                                .flat_map(|key_fields| key_fields.0.keys())
+                                                .any(|name| name == &field.node.name.node)
+                                        })
+                                        .unwrap_or(false);
+                                    if !type_is_shareable && !is_field_shareable && !is_field_entity_key {
                                         return Err(CombineError::FieldConflicted {
                                             type_name: type_definition.node.name.node.to_string(),
                                             field_name: field.node.name.node.to_string(),
