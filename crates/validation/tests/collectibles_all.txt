@@ -1,0 +1,11 @@
+query CollectiblesAll {
+  collectiblesAll {
+    id
+    name
+    collection {
+      id
+      name
+      floorPrice
+    }
+  }
+}

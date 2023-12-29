@@ -20,7 +20,7 @@ use parser::{
     },
     Positioned,
 };
-use tracing::instrument;
+use tracing::{debug, instrument};
 use value::{ConstValue, Name, Value, Variables};
 
 use crate::{

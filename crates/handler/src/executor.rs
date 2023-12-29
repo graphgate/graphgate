@@ -26,6 +26,7 @@ use opentelemetry::{
 };
 use serde::{Deserialize, Deserializer};
 use tokio::sync::{mpsc, Mutex};
+use tracing::instrument;
 use value::{ConstValue, Name, Variables};
 
 use crate::{
@@ -52,6 +53,7 @@ impl<'e> Executor<'e> {
     /// Execute a query plan and return the results.
     ///
     /// Only `Query` and `Mutation` operations are supported.
+    #[instrument(skip(self, fetcher), ret, level = "trace")]
     pub async fn execute_query(self, fetcher: &impl Fetcher, node: &RootNode<'_>) -> Response {
         match node {
             RootNode::Query(node) => {

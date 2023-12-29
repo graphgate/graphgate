@@ -17,3 +17,4 @@ value.workspace = true
 
 [dev-dependencies]
 once_cell.workspace = true
+tracing-subscriber.workspace = true
