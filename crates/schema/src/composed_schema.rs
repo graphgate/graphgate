@@ -167,7 +167,7 @@ impl MetaType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct MetaDirective {
     pub name: Name,
     pub description: Option<String>,
@@ -260,6 +260,7 @@ impl ComposedSchema {
                             });
 
                             let mut type_is_shareable = false;
+                            let mut type_is_resolvable = true;
                             for directive in type_definition.node.directives {
                                 if directive.node.name.node.as_str() == "shareable" {
                                     type_is_shareable = true;
@@ -276,10 +277,14 @@ impl ComposedSchema {
                                                 .push(convert_key_fields(selection_set.node));
                                         }
                                     }
+                                    if let Some(resolvable) = get_argument_bool(&directive.node.arguments, "resolvable")
+                                    {
+                                        type_is_resolvable = resolvable.node;
+                                    }
                                 }
                             }
 
-                            if !is_extend && !type_is_shareable {
+                            if !is_extend && !type_is_shareable && type_is_resolvable {
                                 meta_type.owner = Some(service.clone());
                             };
 
@@ -400,6 +405,13 @@ fn get_argument_str<'a>(
 ) -> Option<Positioned<&'a str>> {
     get_argument(arguments, name).and_then(|value| match &value.node {
         ConstValue::String(s) => Some(Positioned::new(s.as_str(), value.pos)),
+        _ => None,
+    })
+}
+
+fn get_argument_bool(arguments: &[(Positioned<Name>, Positioned<ConstValue>)], name: &str) -> Option<Positioned<bool>> {
+    get_argument(arguments, name).and_then(|value| match value.node {
+        ConstValue::Boolean(s) => Some(Positioned::new(s, value.pos)),
         _ => None,
     })
 }

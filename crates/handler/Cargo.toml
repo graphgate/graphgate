@@ -34,3 +34,6 @@ tokio.workspace = true
 tracing.workspace = true
 value.workspace = true
 warp.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true

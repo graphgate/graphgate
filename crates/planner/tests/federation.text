@@ -1,0 +1,33 @@
+query CollectiblesAll {
+  collectiblesAll {
+    __typename
+    id
+    name
+    collection {
+      __typename
+      id
+      name
+      floorPrice
+    }
+  }
+}
+---
+{}
+---
+{
+  "type": "sequence",
+  "nodes": [
+    {
+      "type": "fetch",
+      "service": "collectibles",
+      "query": "query\n{ collectiblesAll { __typename id name collection { __typename id __key1___typename:__typename __key1_id:id } } }"
+    },
+    {
+      "type": "flatten",
+      "service": "collections",
+      "path": "[collectiblesAll].collection",
+      "prefix": 1,
+      "query": "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on Collection { name floorPrice } } }"
+    }
+  ]
+}

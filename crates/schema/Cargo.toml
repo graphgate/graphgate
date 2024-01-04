@@ -17,4 +17,5 @@ tracing.workspace = true
 value.workspace = true
 
 [dev-dependencies]
+pretty_assertions.workspace = true
 tracing-subscriber.workspace = true

@@ -236,6 +236,7 @@ impl<'a> RootGroup<'a> for MutationRootGroup<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct FetchEntity<'a> {
     pub parent_type: &'a MetaType,
     pub prefix: usize,
