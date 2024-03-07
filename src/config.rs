@@ -21,7 +21,8 @@ pub struct Config {
     #[serde(default)]
     pub path: String,
 
-    #[serde(default)]
+    #[clap(long, env, default_value = "graphgate")]
+    #[serde(default = "default_service_name")]
     pub gateway_name: String,
 
     #[clap(long, env, value_delimiter = ',')]
@@ -90,7 +91,7 @@ pub struct JaegerConfig {
     pub agent_endpoint: Option<String>,
 
     #[clap(long, env = "JAEGER_SERVICE_NAME", default_value = "graphgate")]
-    #[serde(default = "default_jaeger_service_name")]
+    #[serde(default = "default_service_name")]
     pub service_name: String,
 }
 
@@ -208,7 +209,7 @@ fn default_bind() -> String {
     "127.0.0.1:8000".to_string()
 }
 
-fn default_jaeger_service_name() -> String {
+fn default_service_name() -> String {
     "graphgate".to_string()
 }
 
