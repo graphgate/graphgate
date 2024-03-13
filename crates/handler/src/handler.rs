@@ -1,10 +1,4 @@
-use std::{
-    convert::{Infallible, TryInto},
-    net::SocketAddr,
-    str::FromStr,
-    sync::Arc,
-    time::Instant,
-};
+use std::{convert::Infallible, net::SocketAddr, str::FromStr, sync::Arc, time::Instant};
 
 use async_graphql::http::GraphiQLSource;
 use graphgate_planner::Request;

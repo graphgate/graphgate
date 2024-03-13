@@ -54,7 +54,7 @@ impl DerefMut for ServiceRouteTable {
 
 impl ServiceRouteTable {
     /// Call the GraphQL query of the specified service.
-    #[instrument(err(Debug), ret, level = "trace")]
+    #[instrument(err(Debug), skip(request, header_map), ret, level = "trace")]
     pub async fn query(
         &self,
         service: impl AsRef<str> + std::fmt::Debug,

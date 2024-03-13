@@ -13,6 +13,7 @@ keywords.workspace = true
 graphgate-schema.workspace = true
 indexmap.workspace = true
 parser.workspace = true
+tracing.workspace = true
 value.workspace = true
 
 [dev-dependencies]

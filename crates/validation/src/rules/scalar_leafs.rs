@@ -1,4 +1,5 @@
 use parser::{types::Field, Positioned};
+use tracing::{instrument, trace};
 
 use crate::{Visitor, VisitorContext};
 
@@ -6,10 +7,13 @@ use crate::{Visitor, VisitorContext};
 pub struct ScalarLeafs;
 
 impl<'a> Visitor<'a> for ScalarLeafs {
+    #[instrument(skip(self, ctx), level = "trace")]
     fn enter_field(&mut self, ctx: &mut VisitorContext<'a>, field: &'a Positioned<Field>) {
         if let Some(ty) = ctx.parent_type() {
+            trace!("Parent type: {:?}", ty);
             if let Some(schema_field) = ty.field_by_name(&field.node.name.node) {
                 if let Some(ty) = ctx.schema.concrete_type_by_name(&schema_field.ty) {
+                    trace!("Concrete type: {:?}", ty);
                     if ty.is_leaf() && !field.node.selection_set.node.items.is_empty() {
                         ctx.report_error(
                             vec![field.pos],

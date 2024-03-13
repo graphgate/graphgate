@@ -141,7 +141,7 @@ impl SharedRouteTable {
         composed_schema.zip(route_table)
     }
 
-    #[instrument(skip(self), ret, level = "trace")]
+    #[instrument(skip(self, request, header_map), ret, level = "trace")]
     pub async fn query(&self, request: Request, header_map: HeaderMap) -> HttpResponse<String> {
         let tracer = global::tracer("graphql");
 
