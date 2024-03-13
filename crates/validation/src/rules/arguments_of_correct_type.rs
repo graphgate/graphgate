@@ -40,7 +40,7 @@ impl<'a> Visitor<'a> for ArgumentsOfCorrectType<'a> {
             let value = value
                 .node
                 .clone()
-                .into_const_with(|var_name| ctx.variables.get(&var_name).map(Clone::clone).ok_or(()))
+                .into_const_with(|var_name| ctx.variables.get(&var_name).cloned().ok_or(()))
                 .ok();
 
             if let Some(reason) = value

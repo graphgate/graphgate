@@ -931,6 +931,7 @@ dependencies = [
  "graphgate-schema",
  "indexmap 2.0.2",
  "once_cell",
+ "tracing",
  "tracing-subscriber",
 ]
 
