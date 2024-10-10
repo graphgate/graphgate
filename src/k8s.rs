@@ -55,9 +55,11 @@ pub async fn find_graphql_services(gateway_name: &str) -> Result<ServiceRouteTab
     let mut route_table = ServiceRouteTable::default();
     let services_api: Api<Service> = Api::namespaced(client, &namespace);
 
-    tracing::trace!("List all services.");
+    let label = get_gateway_or_default(gateway_name);
+
+    tracing::trace!(label = %label, "List all services.");
     let services = services_api
-        .list(&ListParams::default().labels(get_gateway_or_default(gateway_name).as_str()))
+        .list(&ListParams::default().labels(label.as_str()))
         .await
         .context("Failed to call list services api")?;
 
