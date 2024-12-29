@@ -6,6 +6,7 @@ use futures_util::stream::Stream;
 use tokio::time::Duration;
 use warp::{Filter, Reply};
 
+#[derive(Clone)]
 struct User {
     id: ID,
 }
@@ -13,16 +14,20 @@ struct User {
 #[Object(extends)]
 impl User {
     #[graphql(external)]
-    async fn id(&self) -> &ID {
-        &self.id
+    async fn id(&self) -> ID {
+        self.id.clone()
     }
 
-    async fn reviews<'a>(&self, ctx: &'a Context<'_>) -> Vec<&'a Review> {
+    async fn reviews(&self, ctx: &Context<'_>) -> Vec<Review> {
         let reviews = ctx.data_unchecked::<Vec<Review>>();
-        reviews.iter().filter(|review| review.author.id == self.id).collect()
+        reviews.iter()
+            .filter(|review| review.author.id == self.id)
+            .cloned()
+            .collect()
     }
 }
 
+#[derive(Clone)]
 struct Product {
     upc: String,
 }
@@ -30,21 +35,24 @@ struct Product {
 #[Object(extends)]
 impl Product {
     #[graphql(external)]
-    async fn upc(&self) -> &String {
-        &self.upc
+    async fn upc(&self) -> String {
+        self.upc.clone()
     }
 
-    async fn reviews<'a>(&self, ctx: &'a Context<'_>) -> Vec<&'a Review> {
+    async fn reviews(&self, ctx: &Context<'_>) -> Vec<Review> {
         let reviews = ctx.data_unchecked::<Vec<Review>>();
-        reviews.iter().filter(|review| review.product.upc == self.upc).collect()
+        reviews.iter()
+            .filter(|review| review.product.upc == self.upc)
+            .cloned()
+            .collect()
     }
 
-    async fn error(&self) -> Result<i32, &str> {
-        Err("custom error")
+    async fn error(&self) -> Result<i32, String> {
+        Err("custom error".to_string())
     }
 }
 
-#[derive(SimpleObject)]
+#[derive(Clone, SimpleObject)]
 struct Review {
     body: String,
     author: User,

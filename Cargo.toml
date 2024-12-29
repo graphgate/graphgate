@@ -59,8 +59,8 @@ readme = "README.md"
 
 [workspace.dependencies]
 anyhow = "1.0.75"
-async-graphql = { version = "6", features = ["apollo_tracing"] }
-async-graphql-warp = "6"
+async-graphql = { version = "7", features = ["apollo_tracing"] }
+async-graphql-warp = "7"
 async-stream = "0.3.5"
 async-trait = "0.1.73"
 chrono = { version = "0.4.31", features = ["serde"] }
@@ -76,7 +76,7 @@ indexmap = { version = "2.0.2", features = ["serde"] }
 jsonwebtoken = "8.3.0"
 once_cell = "1.18.0"
 opentelemetry = { version = "0.20.0", features = ["metrics"] }
-parser = { version = "6", package = "async-graphql-parser" }
+parser = { version = "7", package = "async-graphql-parser" }
 pretty_assertions = "1.4.0"
 reqwest = { version = "0.11.22", default-features = false, features = ["rustls-tls", "gzip", "brotli", "json"] }
 serde = "1.0.188"
@@ -89,5 +89,5 @@ tokio-stream = "0.1.14"
 tokio-tungstenite = { version = "0.20.1", features = ["rustls-tls-native-roots"] }
 tracing = "0.1.29"
 tracing-subscriber = { version = "0.3.6", features = ["env-filter"] }
-value = { version = "6", package = "async-graphql-value" }
+value = { version = "7", package = "async-graphql-value" }
 warp = "0.3.6"
