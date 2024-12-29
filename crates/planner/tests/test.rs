@@ -25,7 +25,7 @@ fn test() {
 
         println!("{}", entry.path().display());
 
-        let data = fs::read_to_string(&entry.path()).unwrap();
+        let data = fs::read_to_string(entry.path()).unwrap();
         let mut s = data.split("---");
         let mut n = 1;
 
@@ -41,7 +41,7 @@ fn test() {
             let document = parser::parse_query(graphql).unwrap();
             let builder = PlanBuilder::new(&schema, document).variables(serde_json::from_str(variables).unwrap());
             let expect_node: serde_json::Value = serde_json::from_str(planner_json).unwrap();
-            let actual_node = serde_json::to_value(&builder.plan().unwrap()).unwrap();
+            let actual_node = serde_json::to_value(builder.plan().unwrap()).unwrap();
 
             assert_eq!(actual_node, expect_node);
 
@@ -90,7 +90,7 @@ fn test_federation() {
         // One order
         let builder = PlanBuilder::new(&schema, document.clone()).variables(serde_json::from_str(variables).unwrap());
         let expect_node: serde_json::Value = serde_json::from_str(planner_json).unwrap();
-        let actual_node = serde_json::to_value(&builder.plan().unwrap()).unwrap();
+        let actual_node = serde_json::to_value(builder.plan().unwrap()).unwrap();
         assert_eq!(actual_node, expect_node);
     }
     debug!("Reverse order");
@@ -99,7 +99,7 @@ fn test_federation() {
         let builder =
             PlanBuilder::new(&reverse_order_schema, document).variables(serde_json::from_str(variables).unwrap());
         let expect_node: serde_json::Value = serde_json::from_str(planner_json).unwrap();
-        let actual_node = serde_json::to_value(&builder.plan().unwrap()).unwrap();
+        let actual_node = serde_json::to_value(builder.plan().unwrap()).unwrap();
         assert_eq!(actual_node, expect_node);
     }
 }

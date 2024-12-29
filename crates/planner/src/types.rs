@@ -42,7 +42,7 @@ pub enum SelectionRef<'a> {
 #[derive(Default, Debug)]
 pub struct SelectionRefSet<'a>(pub Vec<SelectionRef<'a>>);
 
-impl<'a> Display for SelectionRefSet<'a> {
+impl Display for SelectionRefSet<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         stringify_selection_ref_set_rec(f, self)
     }
@@ -56,7 +56,7 @@ pub struct FetchQuery<'a> {
     pub selection_set: SelectionRefSet<'a>,
 }
 
-impl<'a> Display for FetchQuery<'a> {
+impl Display for FetchQuery<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self.entity_type {
             Some(entity_type) => {
@@ -85,7 +85,7 @@ impl<'a> Display for FetchQuery<'a> {
     }
 }
 
-impl<'a> Serialize for FetchQuery<'a> {
+impl Serialize for FetchQuery<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where S: Serializer {
         serializer.serialize_str(&self.to_string())
@@ -257,18 +257,18 @@ pub struct VariableDefinitionsRef<'a> {
     pub variables: Vec<&'a VariableDefinition>,
 }
 
-impl<'a> VariableDefinitionsRef<'a> {
+impl VariableDefinitionsRef<'_> {
     pub fn is_empty(&self) -> bool {
         self.variables.is_empty()
     }
 }
 
-impl<'a> Serialize for VariableDefinitionsRef<'a> {
+impl Serialize for VariableDefinitionsRef<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where S: Serializer {
         struct VariableDefinitionRef<'a>(&'a VariableDefinition);
 
-        impl<'a> Serialize for VariableDefinitionRef<'a> {
+        impl Serialize for VariableDefinitionRef<'_> {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where S: Serializer {
                 let mut s = serializer.serialize_struct("VariableDefinitions", 3)?;
@@ -287,7 +287,7 @@ impl<'a> Serialize for VariableDefinitionsRef<'a> {
     }
 }
 
-impl<'a> Display for VariableDefinitionsRef<'a> {
+impl Display for VariableDefinitionsRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         for (idx, variable_definition) in self.variables.iter().enumerate() {
             if idx > 0 {
@@ -312,7 +312,7 @@ pub struct VariablesRef<'a> {
     pub variables: IndexMap<&'a str, &'a ConstValue>,
 }
 
-impl<'a> VariablesRef<'a> {
+impl VariablesRef<'_> {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.variables.is_empty()

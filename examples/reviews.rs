@@ -20,7 +20,8 @@ impl User {
 
     async fn reviews(&self, ctx: &Context<'_>) -> Vec<Review> {
         let reviews = ctx.data_unchecked::<Vec<Review>>();
-        reviews.iter()
+        reviews
+            .iter()
             .filter(|review| review.author.id == self.id)
             .cloned()
             .collect()
@@ -41,7 +42,8 @@ impl Product {
 
     async fn reviews(&self, ctx: &Context<'_>) -> Vec<Review> {
         let reviews = ctx.data_unchecked::<Vec<Review>>();
-        reviews.iter()
+        reviews
+            .iter()
             .filter(|review| review.product.upc == self.upc)
             .cloned()
             .collect()

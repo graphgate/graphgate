@@ -48,7 +48,7 @@ impl<'a> IntrospectionType<'a> {
     }
 }
 
-impl<'a> Resolver for IntrospectionType<'a> {
+impl Resolver for IntrospectionType<'_> {
     fn resolve(&self, selection_set: &IntrospectionSelectionSet, schema: &ComposedSchema) -> ConstValue {
         resolve_obj(selection_set, |name, field| match name {
             "kind" => match self {

@@ -106,9 +106,9 @@ async fn jwt_auth_validate(header_map: HeaderMap, auth: Arc<Auth>) -> Result<(),
 
         let token_header = jsonwebtoken::decode_header(token).map_err(AuthError::DecodingError)?;
 
-        let kid = token_header.kid.ok_or_else(|| AuthError::MissingKid)?;
+        let kid = token_header.kid.ok_or(AuthError::MissingKid)?;
 
-        let decoding_key = auth.decoding_keys.get(&kid).ok_or_else(|| AuthError::InvalidKid)?;
+        let decoding_key = auth.decoding_keys.get(&kid).ok_or(AuthError::InvalidKid)?;
 
         jsonwebtoken::decode::<serde_json::Value>(
             token,

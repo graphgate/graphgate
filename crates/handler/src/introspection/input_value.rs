@@ -9,7 +9,7 @@ use super::{
 
 pub struct IntrospectionInputValue<'a>(pub &'a MetaInputValue);
 
-impl<'a> Resolver for IntrospectionInputValue<'a> {
+impl Resolver for IntrospectionInputValue<'_> {
     fn resolve(&self, selection_set: &IntrospectionSelectionSet, schema: &ComposedSchema) -> ConstValue {
         resolve_obj(selection_set, |name, field| match name {
             "name" => ConstValue::String(self.0.name.to_string()),
