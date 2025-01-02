@@ -208,7 +208,7 @@ impl VisitorNil {
     }
 }
 
-impl<'a> Visitor<'a> for VisitorNil {}
+impl Visitor<'_> for VisitorNil {}
 
 pub struct VisitorCons<A, B>(A, B);
 

@@ -22,7 +22,7 @@ pub enum PlanNode<'a> {
     Flatten(FlattenNode<'a>),
 }
 
-impl<'a> PlanNode<'a> {
+impl PlanNode<'_> {
     pub(crate) fn flatten(self) -> Self {
         match self {
             PlanNode::Sequence(mut node) if node.nodes.len() == 1 => node.nodes.remove(0),
@@ -42,7 +42,7 @@ pub struct PathSegment<'a> {
 #[derive(Clone, Default, Hash, Eq, PartialEq)]
 pub struct ResponsePath<'a>(Vec<PathSegment<'a>>);
 
-impl<'a> Debug for ResponsePath<'a> {
+impl Debug for ResponsePath<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         for (idx, segment) in self.0.iter().enumerate() {
             if idx > 0 {
@@ -61,13 +61,13 @@ impl<'a> Debug for ResponsePath<'a> {
     }
 }
 
-impl<'a> Display for ResponsePath<'a> {
+impl Display for ResponsePath<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         Debug::fmt(self, f)
     }
 }
 
-impl<'a> Serialize for ResponsePath<'a> {
+impl Serialize for ResponsePath<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where S: Serializer {
         serializer.serialize_str(&self.to_string())
@@ -82,7 +82,7 @@ impl<'a> Deref for ResponsePath<'a> {
     }
 }
 
-impl<'a> DerefMut for ResponsePath<'a> {
+impl DerefMut for ResponsePath<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -141,7 +141,7 @@ pub struct FetchNode<'a> {
     pub query: FetchQuery<'a>,
 }
 
-impl<'a> FetchNode<'a> {
+impl FetchNode<'_> {
     pub fn to_request(&self) -> Request {
         Request::new(self.query.to_string()).variables(self.variables.to_variables())
     }
@@ -158,7 +158,7 @@ pub struct FlattenNode<'a> {
     pub query: FetchQuery<'a>,
 }
 
-impl<'a> FlattenNode<'a> {
+impl FlattenNode<'_> {
     pub fn to_request(&self, representations: Variables) -> Request {
         Request::new(self.query.to_string())
             .variables(representations)

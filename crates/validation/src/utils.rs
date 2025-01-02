@@ -48,7 +48,7 @@ impl<'a> PathNode<'a> {
     }
 }
 
-impl<'a> Display for PathNode<'a> {
+impl Display for PathNode<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         fn write_node(f: &mut Formatter<'_>, node: &PathNode) -> FmtResult {
             if let Some(parent) = node.parent {

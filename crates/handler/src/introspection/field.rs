@@ -10,7 +10,7 @@ use super::{
 
 pub struct IntrospectionField<'a>(pub &'a MetaField);
 
-impl<'a> Resolver for IntrospectionField<'a> {
+impl Resolver for IntrospectionField<'_> {
     fn resolve(&self, selection_set: &IntrospectionSelectionSet, schema: &ComposedSchema) -> ConstValue {
         resolve_obj(selection_set, |name, field| match name {
             "name" => ConstValue::String(self.0.name.to_string()),

@@ -18,7 +18,7 @@ pub struct KnownArgumentNames<'a> {
     current_args: Option<(&'a IndexMap<Name, MetaInputValue>, ArgsType<'a>)>,
 }
 
-impl<'a> KnownArgumentNames<'a> {
+impl KnownArgumentNames<'_> {
     fn get_suggestion(&self, name: &str) -> String {
         make_suggestion(
             " Did you mean",
