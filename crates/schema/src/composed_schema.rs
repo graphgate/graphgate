@@ -261,6 +261,10 @@ impl ComposedSchema {
 
                             let mut type_is_shareable = false;
                             let mut type_is_resolvable = true;
+
+                            // Check if the type is already marked as shareable
+                            let already_shareable = meta_type.owner.is_none();
+
                             for directive in type_definition.node.directives {
                                 if directive.node.name.node.as_str() == "shareable" {
                                     type_is_shareable = true;
@@ -284,7 +288,11 @@ impl ComposedSchema {
                                 }
                             }
 
-                            if !is_extend && !type_is_shareable && type_is_resolvable {
+                            // If the type is shareable or was already marked as shareable, ensure it has no owner
+                            if type_is_shareable || already_shareable {
+                                meta_type.owner = None;
+                            } else if !is_extend && !type_is_shareable && type_is_resolvable {
+                                // For non-shareable, non-extended types, set the owner
                                 meta_type.owner = Some(service.clone());
                             };
 
@@ -331,25 +339,18 @@ impl ComposedSchema {
                         } else {
                             let meta_type = convert_type_definition(type_definition.node);
                             if let Some(meta_type2) = composed_schema.types.get(&meta_type.name) {
-                                // Check if both types are scalars - we should be more lenient with scalar types
                                 let both_are_scalars =
                                     meta_type.kind == TypeKind::Scalar && meta_type2.kind == TypeKind::Scalar;
 
-                                // List of common scalar types that should be allowed to be defined multiple times
                                 let common_scalar_types = ["DateTime", "Date", "Time", "JSON", "UUID", "Email", "URL"];
 
                                 let is_common_scalar = common_scalar_types.contains(&meta_type.name.as_str());
 
-                                // If they're not both scalars or if they're not common scalars and they don't match,
-                                // return an error
                                 if !both_are_scalars || (!is_common_scalar && meta_type2 != &meta_type) {
                                     return Err(CombineError::DefinitionConflicted {
                                         type_name: meta_type.name.to_string(),
                                     });
                                 }
-
-                                // If they're both scalars and they're common scalars, we'll allow the conflict
-                                // and keep the first definition we encountered
                             } else {
                                 composed_schema.types.insert(meta_type.name.clone(), meta_type);
                             }
@@ -508,6 +509,9 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
 
     for directive in definition.directives {
         match directive.node.name.node.as_str() {
+            "shareable" => {
+                type_definition.owner = None;
+            },
             "owner" => {
                 if let Some(service) = get_argument_str(&directive.node.arguments, "service") {
                     type_definition.owner = Some(service.node.to_string());
