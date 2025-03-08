@@ -1033,3 +1033,139 @@ fn test_common_scalar_types_can_be_shared_without_shareable() {
         Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
     }
 }
+
+#[test]
+fn test_entity_types_can_be_referenced_across_subgraphs() {
+    // Define a subgraph that defines an entity type
+    let service1_sdl = r#"
+    type User @key(fields: "id") {
+        id: ID!
+        name: String!
+    }
+
+    type Query {
+        user(id: ID!): User
+    }
+    "#;
+
+    // Define a subgraph that references the entity type
+    let service2_sdl = r#"
+    # Reference the User entity type without @shareable
+    type User @key(fields: "id") {
+        id: ID!
+        email: String!
+    }
+
+    type Query {
+        users: [User!]!
+    }
+    "#;
+
+    // Parse the SDL into ServiceDocuments
+    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
+    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
+
+    // Combine the services - this should succeed because User is an entity type
+    let result = ComposedSchema::combine([
+        ("service1".to_string(), service1_doc),
+        ("service2".to_string(), service2_doc),
+    ]);
+
+    // Verify that the combination succeeded
+    match result {
+        Ok(schema) => {
+            // Verify that the User type exists
+            let user_type = schema
+                .types
+                .get("User")
+                .expect("User type not found in combined schema");
+
+            // Verify that it's marked as an entity
+            assert!(user_type.is_entity(), "User should be marked as an entity");
+
+            // Verify that it has fields from both services
+            assert!(user_type.fields.contains_key("id"), "id field not found in User type");
+            assert!(
+                user_type.fields.contains_key("name"),
+                "name field not found in User type"
+            );
+            assert!(
+                user_type.fields.contains_key("email"),
+                "email field not found in User type"
+            );
+
+            // Verify that it has keys for both services
+            assert!(
+                user_type.keys.contains_key("service1"),
+                "User should have keys for service1"
+            );
+            assert!(
+                user_type.keys.contains_key("service2"),
+                "User should have keys for service2"
+            );
+        },
+        Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
+    }
+}
+
+#[test]
+fn test_value_types_cannot_be_referenced_across_subgraphs_without_shareable() {
+    // Define a subgraph that defines a value type (interface)
+    let service1_sdl = r#"
+    interface Node {
+        id: ID!
+    }
+
+    type User implements Node @key(fields: "id") {
+        id: ID!
+        name: String!
+    }
+
+    type Query {
+        user(id: ID!): User
+    }
+    "#;
+
+    // Define a subgraph that tries to reference the value type without @shareable
+    let service2_sdl = r#"
+    # Try to reference the Node interface without @shareable
+    interface Node {
+        id: ID!
+    }
+
+    type Product implements Node {
+        id: ID!
+        name: String!
+        price: Int!
+    }
+
+    type Query {
+        products: [Product!]!
+    }
+    "#;
+
+    // Parse the SDL into ServiceDocuments
+    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
+    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
+
+    // Combine the services - this should fail because Node is a value type without @shareable
+    let result = ComposedSchema::combine([
+        ("service1".to_string(), service1_doc),
+        ("service2".to_string(), service2_doc),
+    ]);
+
+    // Verify that the combination failed with a ValueTypeOwnershipConflicted error
+    match result {
+        Err(CombineError::ValueTypeOwnershipConflicted {
+            type_name,
+            owner_service,
+            current_service,
+        }) => {
+            assert_eq!(type_name, "Node");
+            assert_eq!(owner_service, "service1");
+            assert_eq!(current_service, "service2");
+        },
+        Ok(_) => panic!("Expected combination to fail due to value type ownership conflict"),
+        Err(e) => panic!("Expected ValueTypeOwnershipConflicted error, got: {:?}", e),
+    }
+}

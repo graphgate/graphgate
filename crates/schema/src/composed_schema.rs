@@ -107,6 +107,7 @@ pub struct MetaType {
     pub kind: TypeKind,
     pub owner: Option<String>,
     pub keys: HashMap<String, Vec<KeyFields>>,
+    pub is_entity: bool,
 
     pub implements: IndexSet<Name>,
     pub fields: IndexMap<Name, MetaField>,
@@ -119,6 +120,11 @@ impl MetaType {
     #[inline]
     pub fn field_by_name(&self, name: &str) -> Option<&MetaField> {
         self.fields.get(name)
+    }
+
+    #[inline]
+    pub fn is_entity(&self) -> bool {
+        self.is_entity
     }
 
     #[inline]
@@ -226,6 +232,7 @@ impl ComposedSchema {
                 kind: TypeKind::Object,
                 owner: None,
                 keys: Default::default(),
+                is_entity: false,
                 implements: Default::default(),
                 fields: Default::default(),
                 possible_types: Default::default(),
@@ -252,6 +259,7 @@ impl ComposedSchema {
                                 kind: TypeKind::Object,
                                 owner: None,
                                 keys: Default::default(),
+                                is_entity: false,
                                 implements: Default::default(),
                                 fields: Default::default(),
                                 possible_types: Default::default(),
@@ -270,6 +278,9 @@ impl ComposedSchema {
                                     type_is_shareable = true;
                                 }
                                 if directive.node.name.node.as_str() == "key" {
+                                    // Mark this type as an entity since it has a @key directive
+                                    meta_type.is_entity = true;
+
                                     if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
                                         if let Some(selection_set) = parse_fields(fields.node)
                                             .map(|selection_set| Positioned::new(selection_set, directive.pos))
@@ -293,7 +304,10 @@ impl ComposedSchema {
                                 meta_type.owner = None;
                             } else if !is_extend && !type_is_shareable && type_is_resolvable {
                                 // For non-shareable, non-extended types, set the owner
-                                meta_type.owner = Some(service.clone());
+                                // Entity types can be referenced across subgraphs, so they don't need an owner
+                                if !meta_type.is_entity {
+                                    meta_type.owner = Some(service.clone());
+                                }
                             };
 
                             meta_type
@@ -364,7 +378,8 @@ impl ComposedSchema {
                                 // If the type is already in the schema and has an owner, enforce ownership rules
                                 if let Some(owner_service) = &meta_type2.owner {
                                     // If the type is not shareable, it can only be defined in one subgraph
-                                    if !type_is_shareable {
+                                    // Exception: entity types can be referenced across subgraphs
+                                    if !type_is_shareable && !meta_type2.is_entity {
                                         return Err(CombineError::ValueTypeOwnershipConflicted {
                                             type_name: meta_type.name.to_string(),
                                             owner_service: owner_service.clone(),
@@ -502,6 +517,7 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
         kind: TypeKind::Scalar,
         owner: None,
         keys: Default::default(),
+        is_entity: false,
         implements: Default::default(),
         fields: Default::default(),
         possible_types: Default::default(),
