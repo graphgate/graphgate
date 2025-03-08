@@ -312,7 +312,7 @@ impl ComposedSchema {
                                                 .any(|name| name == &field.node.name.node)
                                         })
                                         .unwrap_or(false);
-                                    
+
                                     // In Federation v2, fields must be explicitly marked as @shareable
                                     // or be part of an entity key to be shared across services
                                     if !type_is_shareable && !is_field_shareable && !is_field_entity_key {
@@ -332,20 +332,22 @@ impl ComposedSchema {
                             let meta_type = convert_type_definition(type_definition.node);
                             if let Some(meta_type2) = composed_schema.types.get(&meta_type.name) {
                                 // Check if both types are scalars - we should be more lenient with scalar types
-                                let both_are_scalars = meta_type.kind == TypeKind::Scalar && meta_type2.kind == TypeKind::Scalar;
-                                
+                                let both_are_scalars =
+                                    meta_type.kind == TypeKind::Scalar && meta_type2.kind == TypeKind::Scalar;
+
                                 // List of common scalar types that should be allowed to be defined multiple times
                                 let common_scalar_types = ["DateTime", "Date", "Time", "JSON", "UUID", "Email", "URL"];
-                                
+
                                 let is_common_scalar = common_scalar_types.contains(&meta_type.name.as_str());
-                                
-                                // If they're not both scalars or if they're not common scalars and they don't match, return an error
+
+                                // If they're not both scalars or if they're not common scalars and they don't match,
+                                // return an error
                                 if !both_are_scalars || (!is_common_scalar && meta_type2 != &meta_type) {
                                     return Err(CombineError::DefinitionConflicted {
                                         type_name: meta_type.name.to_string(),
                                     });
                                 }
-                                
+
                                 // If they're both scalars and they're common scalars, we'll allow the conflict
                                 // and keep the first definition we encountered
                             } else {
@@ -361,14 +363,14 @@ impl ComposedSchema {
 
         if let Some(mutation) = composed_schema.types.get("Mutation") {
             if mutation.fields.is_empty() {
-                composed_schema.types.remove("Mutation");
+                composed_schema.types.swap_remove("Mutation");
                 composed_schema.mutation_type = None;
             }
         }
 
         if let Some(subscription) = composed_schema.types.get("Subscription") {
             if subscription.fields.is_empty() {
-                composed_schema.types.remove("Subscription");
+                composed_schema.types.swap_remove("Subscription");
                 composed_schema.subscription_type = None;
             }
         }

@@ -1,4 +1,4 @@
-use graphgate_schema::{ComposedSchema, CombineError};
+use graphgate_schema::{CombineError, ComposedSchema};
 use parser::parse_schema;
 
 #[test]
@@ -88,9 +88,15 @@ fn test_shareable_directive_allows_field_sharing() {
     match result {
         Ok(schema) => {
             // Verify that the User type exists and has the name field
-            let user_type = schema.types.get("User").expect("User type not found in combined schema");
-            assert!(user_type.fields.contains_key("name"), "name field not found in User type");
+            let user_type = schema
+                .types
+                .get("User")
+                .expect("User type not found in combined schema");
+            assert!(
+                user_type.fields.contains_key("name"),
+                "name field not found in User type"
+            );
         },
         Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
     }
-} 
+}

@@ -30,19 +30,19 @@ impl<K: Eq + Hash + Clone, S> GroupedStream<K, S> {
     }
 
     #[inline]
-    pub fn remove<Q: ?Sized>(&mut self, key: &Q)
+    pub fn remove<Q>(&mut self, key: &Q)
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: ?Sized + Hash + Eq,
     {
         self.streams.remove(key);
     }
 
     #[inline]
-    pub fn contains_key<Q: ?Sized>(&self, key: &Q) -> bool
+    pub fn contains_key<Q>(&self, key: &Q) -> bool
     where
         K: Borrow<Q>,
-        Q: Hash + Eq,
+        Q: ?Sized + Hash + Eq,
     {
         self.streams.contains_key(key)
     }
