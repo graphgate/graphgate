@@ -1,4 +1,4 @@
-FROM rust:alpine as builder
+FROM rust:alpine AS builder
 
 ARG TARGETPLATFORM
 
@@ -13,7 +13,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then ARCHITECTURE=x86_64; elif [ "
     && cargo build --target ${ARCHITECTURE}-unknown-linux-musl --release \
     && mv target/${ARCHITECTURE}-unknown-linux-musl/release/graphgate target/graphgate
 
-FROM scratch
+FROM scratch AS runner
 WORKDIR /graphgate
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
