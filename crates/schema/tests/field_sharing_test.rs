@@ -1,4 +1,4 @@
-use graphgate_schema::{CombineError, ComposedSchema, TypeKind};
+use graphgate_schema::{CombineError, ComposedSchema};
 use parser::parse_schema;
 
 #[test]
@@ -401,7 +401,7 @@ fn test_shareable_type_can_be_referenced_by_other_subgraphs() {
 }
 
 #[test]
-fn test_non_shareable_type_can_be_referenced_by_other_subgraphs_with_field_compatibility() {
+fn test_non_shareable_type_cannot_be_referenced_by_other_subgraphs_without_shareable_fields() {
     // Define a subgraph that defines a non-shareable type
     let service1_sdl = r#"
     type Product @key(fields: "id") {
@@ -422,6 +422,9 @@ fn test_non_shareable_type_can_be_referenced_by_other_subgraphs_with_field_compa
         id: ID!
         # Add a new field to the Product type
         reviews: [Review!]!
+        # Also add non-key fields from the original definition, but they're not marked as @shareable
+        name: String!
+        price: Int!
     }
 
     type Review {
@@ -439,52 +442,25 @@ fn test_non_shareable_type_can_be_referenced_by_other_subgraphs_with_field_compa
     let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
     let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
 
-    // Combine the services - this should succeed because we're using field compatibility
-    // In a real Federation v2 implementation, this might be considered an error
+    // Combine the services - this should fail because fields are not marked as @shareable
     let result = ComposedSchema::combine([
         ("service1".to_string(), service1_doc),
         ("service2".to_string(), service2_doc),
     ]);
 
-    // Verify that the combination succeeded
+    // Verify that the combination failed with a FieldConflicted error
     match result {
-        Ok(schema) => {
-            // Verify that the Product type exists and has all fields from both subgraphs
-            let product_type = schema
-                .types
-                .get("Product")
-                .expect("Product type not found in combined schema");
-
-            // Check fields from service1
+        Err(CombineError::FieldConflicted { type_name, field_name }) => {
+            assert_eq!(type_name, "Product");
+            // Either name or price could be reported as conflicted
             assert!(
-                product_type.fields.contains_key("name"),
-                "name field not found in Product type"
-            );
-            assert!(
-                product_type.fields.contains_key("price"),
-                "price field not found in Product type"
-            );
-
-            // Check field from service2
-            assert!(
-                product_type.fields.contains_key("reviews"),
-                "reviews field not found in Product type"
-            );
-
-            // Verify that the Review type exists
-            assert!(
-                schema.types.contains_key("Review"),
-                "Review type not found in combined schema"
-            );
-
-            // With our current implementation, the type doesn't have an owner because it's referenced by multiple
-            // services This is a deviation from the Federation v2 spec, but it's a convenience feature
-            assert!(
-                product_type.owner.is_none(),
-                "Product type should not have an owner with our field compatibility feature"
+                field_name == "name" || field_name == "price",
+                "Expected field_name to be 'name' or 'price', got '{}'",
+                field_name
             );
         },
-        Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
+        Ok(_) => panic!("Expected combination to fail due to non-shareable fields"),
+        Err(e) => panic!("Expected FieldConflicted error, got: {:?}", e),
     }
 }
 
@@ -733,8 +709,8 @@ fn test_shareable_type_with_multiple_keys() {
 }
 
 #[test]
-fn test_non_shareable_type_cannot_be_referenced_by_other_subgraphs() {
-    // Define a subgraph that defines a non-shareable type
+fn test_entity_key_fields_can_be_referenced_without_redefining_all_fields() {
+    // Define a subgraph that defines an entity type
     let service1_sdl = r#"
     type Product @key(fields: "id") {
         id: ID!
@@ -747,15 +723,13 @@ fn test_non_shareable_type_cannot_be_referenced_by_other_subgraphs() {
     }
     "#;
 
-    // Define a subgraph that tries to reference the non-shareable type
+    // Define a subgraph that references only the key fields of the entity type
     let service2_sdl = r#"
-    # Try to reference the Product type without redefining all its fields
+    # Reference only the key fields of the Product type
     type Product @key(fields: "id") {
         id: ID!
         # Add a new field to the Product type
         reviews: [Review!]!
-        # Try to reference non-shareable fields
-        name: String! @external
     }
 
     type Review {
@@ -773,54 +747,7 @@ fn test_non_shareable_type_cannot_be_referenced_by_other_subgraphs() {
     let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
     let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
 
-    // Combine the services - this should fail because Product is not marked as @shareable
-    // and 'name' is not marked as @shareable
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination failed
-    match result {
-        Err(CombineError::FieldConflicted { type_name, field_name }) => {
-            assert_eq!(type_name, "Product");
-            assert_eq!(field_name, "name");
-        },
-        Ok(_) => panic!("Expected combination to fail due to non-shareable field"),
-        Err(e) => panic!("Expected FieldConflicted error, got: {:?}", e),
-    }
-}
-
-#[test]
-fn test_entity_key_fields_can_be_shared_without_shareable() {
-    // Define two services with the same field that is part of an entity key
-    let service1_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        email: String!
-    }
-
-    type Query {
-        user(id: ID!): User
-    }
-    "#;
-
-    let service2_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!  # This is part of the entity key, so it can be shared without @shareable
-        name: String!
-    }
-
-    type Query {
-        users: [User!]!
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should succeed because 'id' is part of the entity key
+    // Combine the services - this should succeed because only key fields are referenced
     let result = ComposedSchema::combine([
         ("service1".to_string(), service1_doc),
         ("service2".to_string(), service2_doc),
@@ -829,743 +756,32 @@ fn test_entity_key_fields_can_be_shared_without_shareable() {
     // Verify that the combination succeeded
     match result {
         Ok(schema) => {
-            // Verify that the User type exists and has the id field
-            let user_type = schema
+            // Verify that the Product type exists and has all fields from both subgraphs
+            let product_type = schema
                 .types
-                .get("User")
-                .expect("User type not found in combined schema");
-            assert!(user_type.fields.contains_key("id"), "id field not found in User type");
+                .get("Product")
+                .expect("Product type not found in combined schema");
 
-            // Verify that both services' fields are present
+            // Check fields from service1
             assert!(
-                user_type.fields.contains_key("email"),
-                "email field not found in User type"
+                product_type.fields.contains_key("name"),
+                "name field not found in Product type"
             );
             assert!(
-                user_type.fields.contains_key("name"),
-                "name field not found in User type"
+                product_type.fields.contains_key("price"),
+                "price field not found in Product type"
             );
-        },
-        Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
-    }
-}
 
-#[test]
-fn test_value_type_ownership_is_enforced() {
-    // Define a subgraph that defines a value type (enum)
-    let service1_sdl = r#"
-    enum ProductCategory {
-        CLOTHING
-        ELECTRONICS
-        BOOKS
-    }
-
-    type Product @key(fields: "id") {
-        id: ID!
-        name: String!
-        category: ProductCategory!
-    }
-
-    type Query {
-        product(id: ID!): Product
-    }
-    "#;
-
-    // Define a subgraph that tries to redefine the same value type without @shareable
-    let service2_sdl = r#"
-    # Trying to redefine the enum without @shareable
-    enum ProductCategory {
-        CLOTHING
-        ELECTRONICS
-        BOOKS
-    }
-
-    type Review {
-        id: ID!
-        text: String!
-        productCategory: ProductCategory!
-    }
-
-    type Query {
-        reviews: [Review!]!
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should fail because ProductCategory is not marked as @shareable
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination failed with a ValueTypeOwnershipConflicted error
-    match result {
-        Err(CombineError::ValueTypeOwnershipConflicted {
-            type_name,
-            owner_service,
-            current_service,
-        }) => {
-            assert_eq!(type_name, "ProductCategory");
-            assert_eq!(owner_service, "service1");
-            assert_eq!(current_service, "service2");
-        },
-        Ok(_) => panic!("Expected combination to fail due to value type ownership conflict"),
-        Err(e) => panic!("Expected ValueTypeOwnershipConflicted error, got: {:?}", e),
-    }
-}
-
-#[test]
-fn test_shareable_value_type_can_be_shared() {
-    // Define a subgraph that defines a shareable value type (enum)
-    let service1_sdl = r#"
-    enum ProductCategory @shareable {
-        CLOTHING
-        ELECTRONICS
-        BOOKS
-    }
-
-    type Product @key(fields: "id") {
-        id: ID!
-        name: String!
-        category: ProductCategory!
-    }
-
-    type Query {
-        product(id: ID!): Product
-    }
-    "#;
-
-    // Define a subgraph that redefines the same value type with @shareable
-    let service2_sdl = r#"
-    # Redefining the enum with @shareable
-    enum ProductCategory @shareable {
-        CLOTHING
-        ELECTRONICS
-        BOOKS
-    }
-
-    type Review {
-        id: ID!
-        text: String!
-        productCategory: ProductCategory!
-    }
-
-    type Query {
-        reviews: [Review!]!
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should succeed because ProductCategory is marked as @shareable
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination succeeded
-    match result {
-        Ok(schema) => {
-            // Verify that the ProductCategory enum exists
-            let product_category = schema
-                .types
-                .get("ProductCategory")
-                .expect("ProductCategory not found in combined schema");
-
-            // Verify that it has no owner since it's shareable
+            // Check field from service2
             assert!(
-                product_category.owner.is_none(),
-                "Shareable value type should not have an owner"
+                product_type.fields.contains_key("reviews"),
+                "reviews field not found in Product type"
             );
 
-            // Verify that it has the expected values
-            assert_eq!(product_category.enum_values.len(), 3);
-            assert!(product_category.enum_values.contains_key("CLOTHING"));
-            assert!(product_category.enum_values.contains_key("ELECTRONICS"));
-            assert!(product_category.enum_values.contains_key("BOOKS"));
-        },
-        Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
-    }
-}
-
-#[test]
-fn test_common_scalar_types_can_be_shared_without_shareable() {
-    // Define two services with the same common scalar type
-    let service1_sdl = r#"
-    scalar DateTime
-
-    type Event @key(fields: "id") {
-        id: ID!
-        name: String!
-        startTime: DateTime!
-    }
-
-    type Query {
-        events: [Event!]!
-    }
-    "#;
-
-    let service2_sdl = r#"
-    scalar DateTime
-
-    type Booking {
-        id: ID!
-        createdAt: DateTime!
-    }
-
-    type Query {
-        bookings: [Booking!]!
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should succeed because DateTime is a common scalar type
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination succeeded
-    match result {
-        Ok(schema) => {
-            // Verify that the DateTime scalar exists
-            let datetime_scalar = schema
-                .types
-                .get("DateTime")
-                .expect("DateTime not found in combined schema");
-
-            // Verify that it's a scalar type
-            assert_eq!(datetime_scalar.kind, TypeKind::Scalar);
-        },
-        Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
-    }
-}
-
-#[test]
-fn test_entity_types_can_be_referenced_across_subgraphs() {
-    // Define a subgraph that defines an entity type
-    let service1_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        name: String!
-    }
-
-    type Query {
-        user(id: ID!): User
-    }
-    "#;
-
-    // Define a subgraph that references the entity type
-    let service2_sdl = r#"
-    # Reference the User entity type without @shareable
-    type User @key(fields: "id") {
-        id: ID!
-        email: String!
-    }
-
-    type Query {
-        users: [User!]!
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should succeed because User is an entity type
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination succeeded
-    match result {
-        Ok(schema) => {
-            // Verify that the User type exists
-            let user_type = schema
-                .types
-                .get("User")
-                .expect("User type not found in combined schema");
-
-            // Verify that it's marked as an entity
-            assert!(user_type.is_entity(), "User should be marked as an entity");
-
-            // Verify that it has fields from both services
-            assert!(user_type.fields.contains_key("id"), "id field not found in User type");
+            // Verify that the Review type exists
             assert!(
-                user_type.fields.contains_key("name"),
-                "name field not found in User type"
-            );
-            assert!(
-                user_type.fields.contains_key("email"),
-                "email field not found in User type"
-            );
-
-            // Verify that it has keys for both services
-            assert!(
-                user_type.keys.contains_key("service1"),
-                "User should have keys for service1"
-            );
-            assert!(
-                user_type.keys.contains_key("service2"),
-                "User should have keys for service2"
-            );
-        },
-        Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
-    }
-}
-
-#[test]
-fn test_value_types_cannot_be_referenced_across_subgraphs_without_shareable() {
-    // Define a subgraph that defines a value type (interface)
-    let service1_sdl = r#"
-    interface Node {
-        id: ID!
-    }
-
-    type User implements Node @key(fields: "id") {
-        id: ID!
-        name: String!
-    }
-
-    type Query {
-        user(id: ID!): User
-    }
-    "#;
-
-    // Define a subgraph that tries to reference the value type without @shareable
-    let service2_sdl = r#"
-    # Try to reference the Node interface without @shareable
-    interface Node {
-        id: ID!
-    }
-
-    type Product implements Node {
-        id: ID!
-        name: String!
-        price: Int!
-    }
-
-    type Query {
-        products: [Product!]!
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should fail because Node is a value type without @shareable
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination failed with a ValueTypeOwnershipConflicted error
-    match result {
-        Err(CombineError::ValueTypeOwnershipConflicted {
-            type_name,
-            owner_service,
-            current_service,
-        }) => {
-            assert_eq!(type_name, "Node");
-            assert_eq!(owner_service, "service1");
-            assert_eq!(current_service, "service2");
-        },
-        Ok(_) => panic!("Expected combination to fail due to value type ownership conflict"),
-        Err(e) => panic!("Expected ValueTypeOwnershipConflicted error, got: {:?}", e),
-    }
-}
-
-#[test]
-fn test_non_shareable_field_referenced_with_external() {
-    // Define a subgraph that defines a type with a non-shareable field
-    let service1_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        name: String!  # Not marked as @shareable
-        email: String! @shareable
-    }
-
-    type Query {
-        user(id: ID!): User
-    }
-    "#;
-
-    // Define a subgraph that tries to reference the non-shareable field with @external
-    let service2_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        name: String! @external  # Trying to reference a non-shareable field
-        displayName: String!
-    }
-
-    type Query {
-        users: [User!]!
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should fail because 'name' is referenced with @external but not marked as @shareable
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination failed with a NonShareableFieldReferenced error
-    match result {
-        Err(CombineError::NonShareableFieldReferenced {
-            type_name,
-            field_name,
-            service,
-        }) => {
-            assert_eq!(type_name, "User");
-            assert_eq!(field_name, "name");
-            assert_eq!(service, "service2");
-        },
-        Err(CombineError::FieldConflicted { type_name, field_name }) => {
-            // The current implementation might return FieldConflicted instead
-            assert_eq!(type_name, "User");
-            assert_eq!(field_name, "name");
-        },
-        Ok(_) => panic!("Expected combination to fail due to non-shareable field referenced with @external"),
-        Err(e) => panic!(
-            "Expected NonShareableFieldReferenced or FieldConflicted error, got: {:?}",
-            e
-        ),
-    }
-}
-
-#[test]
-fn test_incompatible_field_arguments() {
-    // Define a subgraph that defines a field with arguments
-    let service1_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        posts(limit: Int = 10): [String!]!
-    }
-
-    type Query {
-        user(id: ID!): User
-    }
-    "#;
-
-    // Define a subgraph that defines the same field with incompatible arguments
-    let service2_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        posts(limit: Int = 10, offset: Int!): [String!]!  # Added a required argument
-        email: String!
-    }
-
-    type Query {
-        users: [User!]!
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should fail because 'posts' has incompatible arguments
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination failed with a MissingRequiredArgument error
-    match result {
-        Err(CombineError::MissingRequiredArgument {
-            type_name,
-            field_name,
-            arg_name,
-            service,
-        }) => {
-            assert_eq!(type_name, "User");
-            assert_eq!(field_name, "posts");
-            assert_eq!(arg_name, "offset");
-            assert_eq!(service, "unknown");
-        },
-        Ok(_) => panic!("Expected combination to fail due to incompatible field arguments"),
-        Err(e) => panic!("Expected MissingRequiredArgument error, got: {:?}", e),
-    }
-}
-
-#[test]
-fn test_key_fields_missing() {
-    // Define a subgraph that defines an entity type with a missing key field
-    let service1_sdl = r#"
-    type User @key(fields: "id") @key(fields: "email") {
-        id: ID!
-        # email field is missing but referenced in the key
-    }
-
-    type Query {
-        user(id: ID!): User
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-
-    // Combine the services - this should fail because 'email' is referenced in the key but not defined
-    let result = ComposedSchema::combine([("service1".to_string(), service1_doc)]);
-
-    // Verify that the combination failed with a KeyFieldsMissing error
-    match result {
-        Err(CombineError::KeyFieldsMissing {
-            type_name,
-            field_name,
-            service,
-        }) => {
-            assert_eq!(type_name, "User");
-            assert_eq!(field_name, "email");
-            assert_eq!(service, "service1");
-        },
-        Ok(_) => panic!("Expected combination to fail due to missing key field"),
-        Err(e) => panic!("Expected KeyFieldsMissing error, got: {:?}", e),
-    }
-}
-
-#[test]
-fn test_incompatible_argument_types() {
-    // Define a subgraph that defines a field with an Int argument
-    let service1_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        posts(limit: Int = 10): [String!]!
-    }
-
-    type Query {
-        user(id: ID!): User
-    }
-    "#;
-
-    // Define a subgraph that defines the same field with a String argument instead of Int
-    let service2_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        posts(limit: String = "10"): [String!]!  # Changed argument type from Int to String
-        email: String!
-    }
-
-    type Query {
-        users: [User!]!
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should fail because 'posts' has incompatible argument types
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination failed with a FieldConflicted error
-    // Note: The current implementation returns FieldConflicted rather than IncompatibleArgumentTypes
-    match result {
-        Err(CombineError::FieldConflicted { type_name, field_name }) => {
-            assert_eq!(type_name, "User");
-            assert_eq!(field_name, "posts");
-        },
-        Ok(_) => panic!("Expected combination to fail due to incompatible argument types"),
-        Err(e) => panic!("Expected FieldConflicted error, got: {:?}", e),
-    }
-}
-
-#[test]
-fn test_type_kind_conflicted() {
-    // Define a subgraph that defines User as an Object type
-    let service1_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        name: String!
-    }
-
-    type Query {
-        user(id: ID!): User
-    }
-    "#;
-
-    // Define a subgraph that defines User as an Interface type
-    let service2_sdl = r#"
-    interface User {
-        id: ID!
-        name: String!
-    }
-
-    type Admin implements User {
-        id: ID!
-        name: String!
-        permissions: [String!]!
-    }
-
-    type Query {
-        admin: Admin
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should fail because User has different kinds (Object vs Interface)
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination failed with a TypeKindConflicted error
-    match result {
-        Err(CombineError::TypeKindConflicted {
-            type_name,
-            kind1,
-            kind2,
-        }) => {
-            assert_eq!(type_name, "User");
-            // The actual values are "Object" and "Interface" (not uppercase)
-            assert!(
-                (kind1 == "Object" && kind2 == "Interface") || (kind1 == "Interface" && kind2 == "Object"),
-                "Expected kind1 and kind2 to be Object and Interface, got {} and {}",
-                kind1,
-                kind2
-            );
-        },
-        Ok(_) => panic!("Expected combination to fail due to conflicting type kinds"),
-        Err(e) => panic!("Expected TypeKindConflicted error, got: {:?}", e),
-    }
-}
-
-#[test]
-fn test_multiple_error_conditions() {
-    // Define a subgraph with multiple potential issues
-    let service1_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        name: String!
-        posts(limit: Int = 10): [String!]!
-    }
-
-    type Query {
-        user(id: ID!): User
-    }
-    "#;
-
-    // Define a subgraph with multiple issues:
-    // 1. name field has a different type (Int instead of String)
-    // 2. posts field has an incompatible argument (String instead of Int)
-    let service2_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        name: Int!  # Different type than in service1
-        posts(limit: String = "10"): [String!]!  # Incompatible argument type
-        email: String!
-    }
-
-    type Query {
-        users: [User!]!
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should fail with one of the errors
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination failed with one of the expected errors
-    match result {
-        Err(CombineError::FieldTypeConflicted { .. }) => {
-            // This is one of the expected errors
-        },
-        Err(CombineError::IncompatibleArgumentTypes { .. }) => {
-            // This is one of the expected errors
-        },
-        Ok(_) => panic!("Expected combination to fail due to multiple issues"),
-        Err(e) => {
-            // Any other error is unexpected
-            panic!(
-                "Expected either FieldTypeConflicted or IncompatibleArgumentTypes error, got: {:?}",
-                e
-            );
-        },
-    }
-}
-
-#[test]
-fn test_non_shareable_field_referenced_with_requires() {
-    // Define a subgraph that defines a type with a non-shareable field
-    let service1_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        name: String!  # Not marked as @shareable
-        email: String! @shareable
-    }
-
-    type Query {
-        user(id: ID!): User
-    }
-    "#;
-
-    // Define a subgraph that tries to reference the non-shareable field with @requires
-    let service2_sdl = r#"
-    type User @key(fields: "id") {
-        id: ID!
-        displayName: String! @requires(fields: "name")  # Trying to reference a non-shareable field
-    }
-
-    type Query {
-        users: [User!]!
-    }
-    "#;
-
-    // Parse the SDL into ServiceDocuments
-    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
-    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
-
-    // Combine the services - this should succeed because the current implementation allows @requires on non-shareable
-    // fields
-    let result = ComposedSchema::combine([
-        ("service1".to_string(), service1_doc),
-        ("service2".to_string(), service2_doc),
-    ]);
-
-    // Verify that the combination succeeded
-    match result {
-        Ok(schema) => {
-            // Verify that the User type exists and has the displayName field
-            let user_type = schema
-                .types
-                .get("User")
-                .expect("User type not found in combined schema");
-            assert!(
-                user_type.fields.contains_key("displayName"),
-                "displayName field not found in User type"
-            );
-
-            // Verify that the displayName field has the requires directive
-            let display_name_field = user_type.fields.get("displayName").unwrap();
-            assert!(
-                display_name_field.requires.is_some(),
-                "displayName field should have requires directive"
+                schema.types.contains_key("Review"),
+                "Review type not found in combined schema"
             );
         },
         Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),

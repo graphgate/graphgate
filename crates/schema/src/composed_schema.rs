@@ -323,6 +323,81 @@ impl ComposedSchema {
                                 }
                             };
 
+                            // If this is an entity type that already exists in the schema and is not marked as
+                            // shareable, check that all fields from the original definition
+                            // are included
+                            if meta_type.is_entity && !meta_type.fields.is_empty() {
+                                // Check if the type is marked as shareable in any service
+                                let type_is_shareable_in_any_service = type_is_shareable ||
+                                    meta_type.owner.is_none() ||
+                                    original_type_definitions
+                                        .get(&meta_type.name.to_string())
+                                        .map(|defs| {
+                                            defs.values().any(|def| {
+                                                def.node
+                                                    .directives
+                                                    .iter()
+                                                    .any(|dir| dir.node.name.node.as_str() == "shareable")
+                                            })
+                                        })
+                                        .unwrap_or(false);
+
+                                // If the type is shareable in any service, we don't need to check for missing fields
+                                if !type_is_shareable_in_any_service {
+                                    // Get all fields defined in this service
+                                    let current_fields: Vec<String> =
+                                        fields.iter().map(|f| f.node.name.node.to_string()).collect();
+
+                                    // Get all fields defined in the original type
+                                    let original_fields: Vec<String> =
+                                        meta_type.fields.keys().map(|k| k.to_string()).collect();
+
+                                    // Find fields that are in the original type but not in this service
+                                    let missing_fields: Vec<String> = original_fields
+                                        .iter()
+                                        .filter(|f| !current_fields.contains(f))
+                                        .cloned()
+                                        .collect();
+
+                                    // If there are missing fields and this is not the first definition of the type,
+                                    // return an error
+                                    if !missing_fields.is_empty() && !meta_type.fields.is_empty() {
+                                        // Skip key fields, which can be referenced without being redefined
+                                        let key_fields: Vec<String> = meta_type
+                                            .keys
+                                            .values()
+                                            .flat_map(|keys| keys.iter())
+                                            .flat_map(|key| key.0.keys())
+                                            .map(|k| k.to_string())
+                                            .collect();
+
+                                        // Filter out key fields from missing fields
+                                        let missing_non_key_fields: Vec<String> = missing_fields.iter()
+                                            .filter(|f| !key_fields.contains(f))
+                                            .filter(|f| *f != "id") // Always allow 'id' field to be referenced
+                                            .cloned()
+                                            .collect();
+
+                                        // Only return an error if there are missing non-key fields and the type is not
+                                        // shareable
+                                        if !missing_non_key_fields.is_empty() {
+                                            // Check if this is a reference to an entity type with only key fields
+                                            let only_key_fields =
+                                                current_fields.iter().all(|f| key_fields.contains(f) || f == "id");
+
+                                            // If this is a reference to an entity type with only key fields, allow it
+                                            if !only_key_fields {
+                                                return Err(CombineError::IncompleteEntityReference {
+                                                    type_name: meta_type.name.to_string(),
+                                                    service: service.clone(),
+                                                    missing_fields: missing_non_key_fields.join(", "),
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             meta_type
                                 .implements
                                 .extend(implements.into_iter().map(|implement| implement.node));
@@ -352,7 +427,7 @@ impl ComposedSchema {
                                             let original_field =
                                                 fields.iter().find(|f| f.node.name.node.as_str() == field_name);
                                             let is_field_shareable = original_field
-                                                .map_or(false, |f| has_directive(&f.node.directives, "shareable"));
+                                                .is_some_and(|f| has_directive(&f.node.directives, "shareable"));
 
                                             if !type_is_shareable && !is_field_shareable {
                                                 return Err(CombineError::NonShareableFieldReferenced {

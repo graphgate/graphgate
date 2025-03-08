@@ -108,4 +108,15 @@ pub enum CombineError {
         field_name: String,
         service: String,
     },
+
+    #[error(
+        "Entity type '{type_name}' is referenced in service '{service}' but is missing fields from its original \
+         definition. In Federation v2, when referencing an entity type from another subgraph, you must either include \
+         all fields from the original definition or mark the type as @shareable."
+    )]
+    IncompleteEntityReference {
+        type_name: String,
+        service: String,
+        missing_fields: String,
+    },
 }

@@ -38,10 +38,6 @@ async-graphql-warp.workspace = true
 async-stream.workspace = true
 fastrand = "2.0.1"
 
-[[example]]
-name = "builtin_scalar_bug"
-path = "./examples/builtin_scalar_bug/bug.rs"
-
 [workspace]
 members = [
     "crates/*"
