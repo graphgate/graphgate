@@ -337,6 +337,15 @@ impl ComposedSchema {
                                 meta_type.fields.insert(meta_field.name.clone(), meta_field);
                             }
                         } else {
+                            // Check if the type is marked as shareable before converting
+                            let mut type_is_shareable = false;
+                            for directive in &type_definition.node.directives {
+                                if directive.node.name.node.as_str() == "shareable" {
+                                    type_is_shareable = true;
+                                    break;
+                                }
+                            }
+
                             let meta_type = convert_type_definition(type_definition.node);
                             if let Some(meta_type2) = composed_schema.types.get(&meta_type.name) {
                                 let both_are_scalars =
@@ -346,13 +355,49 @@ impl ComposedSchema {
 
                                 let is_common_scalar = common_scalar_types.contains(&meta_type.name.as_str());
 
-                                if !both_are_scalars || (!is_common_scalar && meta_type2 != &meta_type) {
+                                // Allow common scalar types to be defined in multiple subgraphs
+                                if both_are_scalars && is_common_scalar {
+                                    // Common scalar types are allowed to be defined in multiple subgraphs
+                                    continue;
+                                }
+
+                                // If the type is already in the schema and has an owner, enforce ownership rules
+                                if let Some(owner_service) = &meta_type2.owner {
+                                    // If the type is not shareable, it can only be defined in one subgraph
+                                    if !type_is_shareable {
+                                        return Err(CombineError::ValueTypeOwnershipConflicted {
+                                            type_name: meta_type.name.to_string(),
+                                            owner_service: owner_service.clone(),
+                                            current_service: service.clone(),
+                                        });
+                                    }
+                                }
+
+                                // If the definitions don't match, return an error
+                                if meta_type2 != &meta_type {
                                     return Err(CombineError::DefinitionConflicted {
                                         type_name: meta_type.name.to_string(),
                                     });
                                 }
+
+                                // If the type is shareable, ensure it has no owner
+                                if type_is_shareable {
+                                    let meta_type2 = composed_schema.types.get_mut(&meta_type.name).unwrap();
+                                    meta_type2.owner = None;
+                                }
                             } else {
-                                composed_schema.types.insert(meta_type.name.clone(), meta_type);
+                                // This is the first time we're seeing this type
+                                // Set the owner for non-shareable types
+                                let mut type_to_insert = meta_type;
+
+                                // Only set an owner if the type is not shareable
+                                if !type_is_shareable {
+                                    type_to_insert.owner = Some(service.clone());
+                                }
+
+                                composed_schema
+                                    .types
+                                    .insert(type_to_insert.name.clone(), type_to_insert);
                             }
                         }
                     },

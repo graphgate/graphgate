@@ -1,4 +1,4 @@
-use graphgate_schema::{CombineError, ComposedSchema};
+use graphgate_schema::{CombineError, ComposedSchema, TypeKind};
 use parser::parse_schema;
 
 #[test]
@@ -830,6 +830,205 @@ fn test_entity_key_fields_can_be_shared_without_shareable() {
                 user_type.fields.contains_key("name"),
                 "name field not found in User type"
             );
+        },
+        Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
+    }
+}
+
+#[test]
+fn test_value_type_ownership_is_enforced() {
+    // Define a subgraph that defines a value type (enum)
+    let service1_sdl = r#"
+    enum ProductCategory {
+        CLOTHING
+        ELECTRONICS
+        BOOKS
+    }
+
+    type Product @key(fields: "id") {
+        id: ID!
+        name: String!
+        category: ProductCategory!
+    }
+
+    type Query {
+        product(id: ID!): Product
+    }
+    "#;
+
+    // Define a subgraph that tries to redefine the same value type without @shareable
+    let service2_sdl = r#"
+    # Trying to redefine the enum without @shareable
+    enum ProductCategory {
+        CLOTHING
+        ELECTRONICS
+        BOOKS
+    }
+
+    type Review {
+        id: ID!
+        text: String!
+        productCategory: ProductCategory!
+    }
+
+    type Query {
+        reviews: [Review!]!
+    }
+    "#;
+
+    // Parse the SDL into ServiceDocuments
+    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
+    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
+
+    // Combine the services - this should fail because ProductCategory is not marked as @shareable
+    let result = ComposedSchema::combine([
+        ("service1".to_string(), service1_doc),
+        ("service2".to_string(), service2_doc),
+    ]);
+
+    // Verify that the combination failed with a ValueTypeOwnershipConflicted error
+    match result {
+        Err(CombineError::ValueTypeOwnershipConflicted {
+            type_name,
+            owner_service,
+            current_service,
+        }) => {
+            assert_eq!(type_name, "ProductCategory");
+            assert_eq!(owner_service, "service1");
+            assert_eq!(current_service, "service2");
+        },
+        Ok(_) => panic!("Expected combination to fail due to value type ownership conflict"),
+        Err(e) => panic!("Expected ValueTypeOwnershipConflicted error, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_shareable_value_type_can_be_shared() {
+    // Define a subgraph that defines a shareable value type (enum)
+    let service1_sdl = r#"
+    enum ProductCategory @shareable {
+        CLOTHING
+        ELECTRONICS
+        BOOKS
+    }
+
+    type Product @key(fields: "id") {
+        id: ID!
+        name: String!
+        category: ProductCategory!
+    }
+
+    type Query {
+        product(id: ID!): Product
+    }
+    "#;
+
+    // Define a subgraph that redefines the same value type with @shareable
+    let service2_sdl = r#"
+    # Redefining the enum with @shareable
+    enum ProductCategory @shareable {
+        CLOTHING
+        ELECTRONICS
+        BOOKS
+    }
+
+    type Review {
+        id: ID!
+        text: String!
+        productCategory: ProductCategory!
+    }
+
+    type Query {
+        reviews: [Review!]!
+    }
+    "#;
+
+    // Parse the SDL into ServiceDocuments
+    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
+    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
+
+    // Combine the services - this should succeed because ProductCategory is marked as @shareable
+    let result = ComposedSchema::combine([
+        ("service1".to_string(), service1_doc),
+        ("service2".to_string(), service2_doc),
+    ]);
+
+    // Verify that the combination succeeded
+    match result {
+        Ok(schema) => {
+            // Verify that the ProductCategory enum exists
+            let product_category = schema
+                .types
+                .get("ProductCategory")
+                .expect("ProductCategory not found in combined schema");
+
+            // Verify that it has no owner since it's shareable
+            assert!(
+                product_category.owner.is_none(),
+                "Shareable value type should not have an owner"
+            );
+
+            // Verify that it has the expected values
+            assert_eq!(product_category.enum_values.len(), 3);
+            assert!(product_category.enum_values.contains_key("CLOTHING"));
+            assert!(product_category.enum_values.contains_key("ELECTRONICS"));
+            assert!(product_category.enum_values.contains_key("BOOKS"));
+        },
+        Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
+    }
+}
+
+#[test]
+fn test_common_scalar_types_can_be_shared_without_shareable() {
+    // Define two services with the same common scalar type
+    let service1_sdl = r#"
+    scalar DateTime
+
+    type Event @key(fields: "id") {
+        id: ID!
+        name: String!
+        startTime: DateTime!
+    }
+
+    type Query {
+        events: [Event!]!
+    }
+    "#;
+
+    let service2_sdl = r#"
+    scalar DateTime
+
+    type Booking {
+        id: ID!
+        createdAt: DateTime!
+    }
+
+    type Query {
+        bookings: [Booking!]!
+    }
+    "#;
+
+    // Parse the SDL into ServiceDocuments
+    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
+    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
+
+    // Combine the services - this should succeed because DateTime is a common scalar type
+    let result = ComposedSchema::combine([
+        ("service1".to_string(), service1_doc),
+        ("service2".to_string(), service2_doc),
+    ]);
+
+    // Verify that the combination succeeded
+    match result {
+        Ok(schema) => {
+            // Verify that the DateTime scalar exists
+            let datetime_scalar = schema
+                .types
+                .get("DateTime")
+                .expect("DateTime not found in combined schema");
+
+            // Verify that it's a scalar type
+            assert_eq!(datetime_scalar.kind, TypeKind::Scalar);
         },
         Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
     }
