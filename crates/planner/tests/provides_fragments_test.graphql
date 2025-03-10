@@ -1,0 +1,55 @@
+type Product @key(fields: "id") {
+  id: ID!
+  name: String!
+  price: Int!
+  # Using a fragment spread in the @provides directive
+  reviews: [Review!]!
+    @provides(fields: "id author { id name profile { bio avatarUrl } }")
+}
+
+type Review @key(fields: "id") {
+  id: ID!
+  text: String!
+  rating: Int!
+  author: User!
+}
+
+type User @key(fields: "id") {
+  id: ID!
+  name: String!
+  email: String!
+  profile: UserProfile
+}
+
+type UserProfile {
+  bio: String
+  avatarUrl: String
+}
+
+type Query {
+  products: [Product!]! @resolve(service: "products")
+  reviews: [Review!]! @resolve(service: "reviews")
+  users: [User!]! @resolve(service: "users")
+}
+
+extend schema
+  @link(
+    url: "https://specs.apollo.dev/federation/v2.3"
+    import: [
+      "@key"
+      "@tag"
+      "@shareable"
+      "@inaccessible"
+      "@override"
+      "@external"
+      "@provides"
+      "@requires"
+      "@composeDirective"
+      "@interfaceObject"
+    ]
+  )
+directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+directive @resolve(service: String!) on FIELD_DEFINITION
+directive @provides(fields: String!) on FIELD_DEFINITION
+directive @key(fields: String!) on OBJECT

@@ -77,7 +77,18 @@ pub struct MetaField {
     pub deprecation: Deprecation,
 
     pub service: Option<String>,
+    /// The `@requires` directive specifies fields from an entity that must be fetched
+    /// from another service before resolving this field.
     pub requires: Option<KeyFields>,
+    /// The `@provides` directive is used to indicate that a field can fetch specific subfields
+    /// of an entity that's defined in another service. This allows the gateway to optimize
+    /// query plans by avoiding unnecessary service calls when the required data can be
+    /// obtained from a single service.
+    /// 
+    /// For example, if a Product type in the products service has a reviews field with
+    /// `@provides(fields: "id author { id name }")`, then when querying for a product's
+    /// reviews and their authors' names, the gateway can avoid making a separate call to
+    /// the users service to fetch the author information.
     pub provides: Option<KeyFields>,
 }
 
@@ -198,13 +209,35 @@ pub struct MetaDirective {
     pub arguments: IndexMap<Name, MetaInputValue>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ComposedSchema {
     pub query_type: Option<Name>,
     pub mutation_type: Option<Name>,
     pub subscription_type: Option<Name>,
     pub types: IndexMap<Name, MetaType>,
     pub directives: HashMap<Name, MetaDirective>,
+    
+    // Federation version information
+    pub federation_version: Option<String>,
+    // Mapping of imported directive names to their original names
+    pub directive_mapping: HashMap<String, String>,
+    // Namespace prefix for federation directives
+    pub federation_namespace: Option<String>,
+}
+
+impl Default for ComposedSchema {
+    fn default() -> Self {
+        Self {
+            query_type: None,
+            mutation_type: None,
+            subscription_type: None,
+            types: Default::default(),
+            directives: Default::default(),
+            federation_version: None,
+            directive_mapping: Default::default(),
+            federation_namespace: None,
+        }
+    }
 }
 
 impl ComposedSchema {
@@ -216,18 +249,30 @@ impl ComposedSchema {
     pub fn new(document: ServiceDocument) -> ComposedSchema {
         let mut composed_schema = ComposedSchema::default();
 
-        for definition in document.definitions.into_iter() {
+        // First pass: Process schema directives to detect Federation version
+        for definition in document.definitions.iter() {
+            if let TypeSystemDefinition::Schema(schema) = definition {
+                convert_schema_definition(&mut composed_schema, schema.node.clone());
+            }
+        }
+
+        // Second pass: Process type definitions with Federation version awareness
+        for definition in document.definitions {
             match definition {
-                TypeSystemDefinition::Schema(schema) => {
-                    convert_schema_definition(&mut composed_schema, schema.node);
+                TypeSystemDefinition::Schema(_) => {
+                    // Already processed in first pass
                 },
                 TypeSystemDefinition::Type(type_definition) => {
-                    composed_schema.types.insert(
-                        type_definition.node.name.node.clone(),
-                        convert_type_definition(type_definition.node),
+                    // Use the service name as empty string for single document
+                    let meta_type = process_type_definition(&composed_schema, type_definition.node, "");
+                    composed_schema.types.insert(meta_type.name.clone(), meta_type);
+                },
+                TypeSystemDefinition::Directive(directive_definition) => {
+                    composed_schema.directives.insert(
+                        directive_definition.node.name.node.clone(),
+                        convert_directive_definition(directive_definition.node),
                     );
                 },
-                TypeSystemDefinition::Directive(_) => {},
             }
         }
 
@@ -777,6 +822,35 @@ impl ComposedSchema {
     pub fn concrete_type_by_name(&self, ty: &Type) -> Option<&MetaType> {
         self.types.get(ty.concrete_typename())
     }
+
+    /// Checks if a directive is imported directly (without namespace)
+    pub fn is_directive_imported(&self, directive_name: &str) -> bool {
+        self.directive_mapping.contains_key(directive_name)
+    }
+
+    /// Gets the original name of a directive (handles renamed directives)
+    pub fn get_original_directive_name(&self, directive_name: &str) -> String {
+        self.directive_mapping
+            .get(directive_name)
+            .map(|name| name.clone())
+            .unwrap_or_else(|| directive_name.to_string())
+    }
+
+    /// Gets the namespaced version of a directive name if it's not imported
+    pub fn get_namespaced_directive(&self, directive_name: &str) -> String {
+        if self.is_directive_imported(directive_name) {
+            directive_name.to_string()
+        } else if let Some(namespace) = &self.federation_namespace {
+            format!("{}{}", namespace, directive_name)
+        } else {
+            directive_name.to_string()
+        }
+    }
+
+    /// Checks if this schema is using Federation v2
+    pub fn is_federation_v2(&self) -> bool {
+        self.federation_version.is_some()
+    }
 }
 
 fn get_argument<'a>(
@@ -818,6 +892,75 @@ fn convert_schema_definition(composed_schema: &mut ComposedSchema, schema_defini
     composed_schema.query_type = schema_definition.query.map(|name| name.node);
     composed_schema.mutation_type = schema_definition.mutation.map(|name| name.node);
     composed_schema.subscription_type = schema_definition.subscription.map(|name| name.node);
+    
+    // Process schema directives
+    for directive in schema_definition.directives {
+        if directive.node.name.node.as_str() == "link" {
+            process_link_directive(composed_schema, &directive.node);
+        }
+    }
+}
+
+// Process the @link directive to extract Federation version and directive imports
+fn process_link_directive(composed_schema: &mut ComposedSchema, directive: &ConstDirective) {
+    // Get the URL argument which contains the Federation version
+    if let Some(url_arg) = get_argument_str(&directive.arguments, "url") {
+        let url = url_arg.node;
+        
+        // Extract Federation version from URL
+        // URL format is typically: https://specs.apollo.dev/federation/v2.3
+        if url.contains("federation") {
+            if let Some(version) = url.split('/').last() {
+                // Remove 'v' prefix if present (e.g., v2.3 -> 2.3)
+                let version = if version.starts_with('v') {
+                    &version[1..]
+                } else {
+                    version
+                };
+                composed_schema.federation_version = Some(version.to_string());
+            }
+            
+            // Set default namespace prefix based on URL
+            // Default is "federation__"
+            composed_schema.federation_namespace = Some("federation__".to_string());
+        }
+        
+        // Check for custom namespace prefix
+        if let Some(as_arg) = get_argument_str(&directive.arguments, "as") {
+            let namespace = format!("{}__", as_arg.node);
+            composed_schema.federation_namespace = Some(namespace);
+        }
+        
+        // Process import list
+        if let Some(import_arg) = get_argument(&directive.arguments, "import") {
+            if let ConstValue::List(imports) = &import_arg.node {
+                for import in imports {
+                    match import {
+                        // Handle string format: "@directive"
+                        ConstValue::String(directive_name) => {
+                            if directive_name.starts_with('@') {
+                                let name = directive_name[1..].to_string(); // Remove @ prefix
+                                composed_schema.directive_mapping.insert(name.clone(), name);
+                            }
+                        },
+                        // Handle object format: { name: "@directive", as: "@renamed" }
+                        ConstValue::Object(obj) => {
+                            if let Some(ConstValue::String(name)) = obj.get("name") {
+                                if let Some(ConstValue::String(as_name)) = obj.get("as") {
+                                    if name.starts_with('@') && as_name.starts_with('@') {
+                                        let original_name = name[1..].to_string(); // Remove @ prefix
+                                        let renamed = as_name[1..].to_string(); // Remove @ prefix
+                                        composed_schema.directive_mapping.insert(renamed, original_name);
+                                    }
+                                }
+                            }
+                        },
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn convert_type_definition(definition: TypeDefinition) -> MetaType {
@@ -910,6 +1053,66 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
     type_definition
 }
 
+// New function that processes type definition with Federation v2 support
+fn process_type_definition(
+    composed_schema: &ComposedSchema,
+    definition: TypeDefinition,
+    service: &str,
+) -> MetaType {
+    let mut type_definition = convert_type_definition(definition.clone());
+    let mut type_is_shareable = false;
+    let mut type_is_resolvable = true;
+
+    for directive in &definition.directives {
+        let directive_name = directive.node.name.node.as_str();
+        
+        // Check for shareable directive (with namespace support)
+        if directive_name == "shareable" || 
+           (composed_schema.is_federation_v2() && 
+            directive_name == composed_schema.get_namespaced_directive("shareable")) {
+            type_is_shareable = true;
+        }
+        
+        // Check for key directive (with namespace support)
+        if directive_name == "key" || 
+           (composed_schema.is_federation_v2() && 
+            directive_name == composed_schema.get_namespaced_directive("key")) {
+            // Mark this type as an entity since it has a @key directive
+            type_definition.is_entity = true;
+
+            if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
+                if let Some(selection_set) = parse_fields(fields.node)
+                    .map(|selection_set| Positioned::new(selection_set, directive.pos))
+                {
+                    type_definition
+                        .keys
+                        .entry(service.to_string())
+                        .or_default()
+                        .push(convert_key_fields(selection_set.node));
+                }
+            }
+            
+            if let Some(resolvable) = get_argument_bool(&directive.node.arguments, "resolvable") {
+                type_is_resolvable = resolvable.node;
+            }
+        }
+    }
+
+    // If the type is shareable, ensure it has no owner
+    if type_is_shareable {
+        type_definition.owner = None;
+    } else if !type_is_resolvable {
+        // If the type is not resolvable, it must be owned by this service
+        type_definition.owner = Some(service.to_string());
+    } else if type_definition.owner.is_none() && !type_definition.is_entity {
+        // If the type is not shareable, not an entity, and has no owner,
+        // it is owned by this service
+        type_definition.owner = Some(service.to_string());
+    }
+
+    type_definition
+}
+
 fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
     let mut field_definition = MetaField {
         description: definition.description.map(|description| description.node),
@@ -944,6 +1147,47 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
                 }
             },
             _ => {},
+        }
+    }
+
+    field_definition
+}
+
+// New function that processes field definition with Federation v2 support
+fn process_field_definition(
+    composed_schema: &ComposedSchema,
+    definition: types::FieldDefinition,
+) -> MetaField {
+    let mut field_definition = convert_field_definition(definition.clone());
+
+    for directive in &definition.directives {
+        let directive_name = directive.node.name.node.as_str();
+        
+        // Check for resolve directive (with namespace support)
+        if directive_name == "resolve" || 
+           (composed_schema.is_federation_v2() && 
+            directive_name == composed_schema.get_namespaced_directive("resolve")) {
+            if let Some(service) = get_argument_str(&directive.node.arguments, "service") {
+                field_definition.service = Some(service.node.to_string());
+            }
+        }
+        
+        // Check for requires directive (with namespace support)
+        if directive_name == "requires" || 
+           (composed_schema.is_federation_v2() && 
+            directive_name == composed_schema.get_namespaced_directive("requires")) {
+            if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
+                field_definition.requires = parse_fields(fields.node).map(convert_key_fields);
+            }
+        }
+        
+        // Check for provides directive (with namespace support)
+        if directive_name == "provides" || 
+           (composed_schema.is_federation_v2() && 
+            directive_name == composed_schema.get_namespaced_directive("provides")) {
+            if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
+                field_definition.provides = parse_fields(fields.node).map(convert_key_fields);
+            }
         }
     }
 
@@ -1008,6 +1252,25 @@ fn has_directive(directives: &[Positioned<ConstDirective>], name: &str) -> bool 
     directives
         .iter()
         .any(|directive| directive.node.name.node.as_str() == name)
+}
+
+// New function to check for a directive with namespace support
+fn has_federation_directive(
+    directives: &[Positioned<ConstDirective>], 
+    name: &str,
+    schema: &ComposedSchema
+) -> bool {
+    if schema.is_federation_v2() {
+        // Check for both direct name and namespaced version
+        let namespaced = schema.get_namespaced_directive(name);
+        directives.iter().any(|directive| {
+            let directive_name = directive.node.name.node.as_str();
+            directive_name == name || directive_name == namespaced
+        })
+    } else {
+        // Federation v1 - just check the direct name
+        has_directive(directives, name)
+    }
 }
 
 fn finish_schema(composed_schema: &mut ComposedSchema) {

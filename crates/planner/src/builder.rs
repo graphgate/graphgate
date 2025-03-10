@@ -541,6 +541,51 @@ impl<'a> Context<'a> {
         };
 
         if service != current_service {
+            // Check if the field can be provided by the current service via @provides
+            let can_be_provided = self.can_field_be_provided(
+                parent_type,
+                field,
+                current_service,
+                &field.selection_set.node,
+            );
+
+            if can_be_provided {
+                // If the field can be provided by the current service, we don't need to fetch it from another service
+                path.push(PathSegment {
+                    name: field.response_key().node.as_str(),
+                    is_list: is_list(&field_definition.ty),
+                    possible_type: None,
+                });
+                let mut sub_selection_set = SelectionRefSet::default();
+
+                if matches!(field_type.kind, TypeKind::Interface | TypeKind::Union) {
+                    self.build_abstract_selection_set(
+                        path,
+                        &mut sub_selection_set,
+                        fetch_entity_group,
+                        current_service,
+                        field_type,
+                        &field.selection_set.node,
+                    );
+                } else {
+                    self.build_selection_set(
+                        path,
+                        &mut sub_selection_set,
+                        fetch_entity_group,
+                        current_service,
+                        field_type,
+                        &field.selection_set.node,
+                    );
+                }
+
+                selection_ref_set.0.push(SelectionRef::FieldRef(FieldRef {
+                    field,
+                    selection_set: sub_selection_set,
+                }));
+                path.pop();
+                return;
+            }
+
             let mut keys = parent_type.keys.get(service).and_then(|x| x.first());
             if keys.is_none() {
                 if let Some(owner) = &parent_type.owner {
@@ -598,6 +643,112 @@ impl<'a> Context<'a> {
             selection_set: sub_selection_set,
         }));
         path.pop();
+    }
+
+    // New helper function to check if a field can be provided by the current service
+    fn can_field_be_provided(
+        &self,
+        parent_type: &'a MetaType,
+        field: &'a Field,
+        current_service: &'a str,
+        selection_set: &'a SelectionSet,
+    ) -> bool {
+        // Check all fields in the parent type to see if any of them have a @provides directive
+        // that can satisfy the requested field
+        for (_, meta_field) in &parent_type.fields {
+            // Skip fields that don't belong to the current service
+            if meta_field.service.as_deref() != Some(current_service) && 
+               parent_type.owner.as_deref() != Some(current_service) {
+                continue;
+            }
+
+            // Check if this field has a @provides directive
+            if let Some(provides) = &meta_field.provides {
+                // Check if the provided fields can satisfy the requested field's selection set
+                if self.selection_set_satisfied_by_provides(field.name.node.as_str(), selection_set, provides) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    // Helper function to check if a selection set is satisfied by a @provides directive
+    fn selection_set_satisfied_by_provides(
+        &self,
+        field_name: &str,
+        selection_set: &'a SelectionSet,
+        provides: &KeyFields,
+    ) -> bool {
+        // Check if the field is directly provided
+        if provides.contains_key(field_name) {
+            // If the field has a selection set, we need to check if all requested fields are provided
+            if !selection_set.items.is_empty() {
+                if let Some(provided_fields) = provides.get(field_name) {
+                    return self.all_selections_satisfied(selection_set, provided_fields);
+                }
+                return false;
+            }
+            return true;
+        }
+        false
+    }
+
+    // Helper function to check if all selections in a selection set are satisfied by provided fields
+    fn all_selections_satisfied(
+        &self,
+        selection_set: &'a SelectionSet,
+        provided_fields: &KeyFields,
+    ) -> bool {
+        for selection in &selection_set.items {
+            match &selection.node {
+                Selection::Field(field) => {
+                    let field_name = field.node.name.node.as_str();
+                    
+                    // Skip __typename as it's always available
+                    if field_name == "__typename" {
+                        continue;
+                    }
+                    
+                    // Check if the field is provided
+                    if !provided_fields.contains_key(field_name) {
+                        return false;
+                    }
+                    
+                    // If this field has a selection set, recursively check it
+                    if !field.node.selection_set.node.items.is_empty() {
+                        if let Some(sub_provided_fields) = provided_fields.get(field_name) {
+                            if !self.all_selections_satisfied(&field.node.selection_set.node, sub_provided_fields) {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                },
+                // Handle fragment spreads by checking the fragment's selection set
+                Selection::FragmentSpread(fragment_spread) => {
+                    if let Some(fragment) = self.fragments.get(&fragment_spread.node.fragment_name.node) {
+                        // Check if all selections in the fragment are satisfied
+                        if !self.all_selections_satisfied(&fragment.node.selection_set.node, provided_fields) {
+                            return false;
+                        }
+                    } else {
+                        // If we can't find the fragment, we can't guarantee it's satisfied
+                        return false;
+                    }
+                },
+                // Handle inline fragments by checking their selection sets
+                Selection::InlineFragment(inline_fragment) => {
+                    // For inline fragments, we need to check if the type condition is compatible
+                    // with the provided fields. For simplicity, we'll just check the selection set.
+                    if !self.all_selections_satisfied(&inline_fragment.node.selection_set.node, provided_fields) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 
     fn add_fetch_entity(
