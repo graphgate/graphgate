@@ -519,6 +519,21 @@ impl<'a> Context<'a> {
         parent_type: &'a MetaType,
         field: &'a Field,
     ) {
+        // Prevent infinite recursion by checking the path length
+        // If the path is too long, we're likely in an infinite loop
+        if path.len() > 10 {
+            // Check if the path contains repeated segments that indicate a loop
+            let mut segments = std::collections::HashMap::new();
+            for segment in path.iter() {
+                let entry = segments.entry(segment.name).or_insert(0);
+                *entry += 1;
+                // If we've seen the same segment more than 3 times, we're likely in a loop
+                if *entry > 3 {
+                    return;
+                }
+            }
+        }
+
         let field_name = field.name.node.as_str();
 
         if field_name == "__typename" {
@@ -535,12 +550,55 @@ impl<'a> Context<'a> {
             None => return,
         };
 
-        let service = match field_definition.service.as_deref().or(parent_type.owner.as_deref()) {
-            Some(service) => service,
-            None => current_service,
+        // Check if the field has a specific service defined
+        let field_service = field_definition.service.as_deref();
+
+        // First check if the field can be provided by the current service via @provides
+        let can_be_provided =
+            self.can_field_be_provided(parent_type, field, current_service, &field.selection_set.node);
+
+        // Determine the service to use for this field
+        // Prefer the current service if it can provide the field to minimize service hops
+        // If the field has a specific service defined, use that service
+        let service = if let Some(service) = field_service {
+            // If the field has a specific service defined, use that service
+            service
+        } else if can_be_provided {
+            current_service
+        } else {
+            match parent_type.owner.as_deref() {
+                Some(service) => service,
+                None => current_service,
+            }
         };
 
+        // Check if this field has a @requires directive
+        if let Some(requires) = &field_definition.requires {
+            // Only process @requires if we're in the service that owns the field
+            if service == current_service {
+                // Handle the @requires directive
+                self.handle_requires_directive(
+                    field,
+                    field_definition,
+                    parent_type,
+                    current_service,
+                    requires,
+                    selection_ref_set,
+                    fetch_entity_group,
+                    path,
+                );
+                return;
+            }
+        }
+
         if service != current_service {
+            // We need to fetch this field from another service
+            path.push(PathSegment {
+                name: field.response_key().node.as_str(),
+                is_list: is_list(&field_definition.ty),
+                possible_type: None,
+            });
+
             let mut keys = parent_type.keys.get(service).and_then(|x| x.first());
             if keys.is_none() {
                 if let Some(owner) = &parent_type.owner {
@@ -551,19 +609,33 @@ impl<'a> Context<'a> {
                 Some(keys) => keys,
                 None => return,
             };
-            if !self.field_in_keys(field, keys) {
+
+            // Check if the field is defined in the service
+            // If the field is defined in the service but not in the keys, we need to fetch it
+            let field_defined_in_service = field_definition.service.as_deref() == Some(service);
+
+            // Check if the field has a @provides directive
+            // If the field has a @provides directive, we need to fetch it from the service that defines it
+            let field_has_provides = field_definition.provides.is_some();
+
+            // If the field is defined in the service, has a @provides directive, or not in the keys, we need to fetch
+            // it
+            if field_defined_in_service || field_has_provides || !self.field_in_keys(field, keys) {
+                // Force the field to be fetched from the service that defines it
                 self.add_fetch_entity(
-                    path,
-                    selection_ref_set,
-                    fetch_entity_group,
-                    parent_type,
                     field,
                     field_definition,
+                    parent_type,
                     service,
-                    keys,
+                    selection_ref_set,
+                    fetch_entity_group,
+                    path,
                 );
                 return;
             }
+
+            path.pop();
+            return;
         }
 
         path.push(PathSegment {
@@ -571,26 +643,31 @@ impl<'a> Context<'a> {
             is_list: is_list(&field_definition.ty),
             possible_type: None,
         });
+
+        // Create a selection set for this field
         let mut sub_selection_set = SelectionRefSet::default();
 
-        if matches!(field_type.kind, TypeKind::Interface | TypeKind::Union) {
-            self.build_abstract_selection_set(
-                path,
-                &mut sub_selection_set,
-                fetch_entity_group,
-                current_service,
-                field_type,
-                &field.selection_set.node,
-            );
-        } else {
-            self.build_selection_set(
-                path,
-                &mut sub_selection_set,
-                fetch_entity_group,
-                current_service,
-                field_type,
-                &field.selection_set.node,
-            );
+        // If the field has a selection set, build it
+        if !field.selection_set.node.items.is_empty() {
+            if matches!(field_type.kind, TypeKind::Interface | TypeKind::Union) {
+                self.build_abstract_selection_set(
+                    path,
+                    &mut sub_selection_set,
+                    fetch_entity_group,
+                    service,
+                    field_type,
+                    &field.selection_set.node,
+                );
+            } else {
+                self.build_selection_set(
+                    path,
+                    &mut sub_selection_set,
+                    fetch_entity_group,
+                    service,
+                    field_type,
+                    &field.selection_set.node,
+                );
+            }
         }
 
         selection_ref_set.0.push(SelectionRef::FieldRef(FieldRef {
@@ -600,48 +677,327 @@ impl<'a> Context<'a> {
         path.pop();
     }
 
-    fn add_fetch_entity(
+    // Method to handle fields with the @requires directive
+    fn handle_requires_directive(
         &mut self,
-        path: &ResponsePath<'a>,
+        field: &'a Field,
+        field_definition: &'a MetaField,
+        parent_type: &'a MetaType,
+        current_service: &'a str,
+        requires: &'a KeyFields,
         selection_ref_set: &mut SelectionRefSet<'a>,
         fetch_entity_group: &mut FetchEntityGroup<'a>,
+        path: &mut ResponsePath<'a>,
+    ) {
+        // Check if the path length exceeds a reasonable limit to prevent infinite loops
+        if path.len() > 10 {
+            // Count occurrences of each segment to detect potential loops
+            let mut segment_counts = std::collections::HashMap::new();
+            for segment in path.iter() {
+                *segment_counts.entry(segment.name).or_insert(0) += 1;
+                // If any segment appears more than 3 times, we likely have a loop
+                if *segment_counts.get(segment.name).unwrap() > 3 {
+                    return;
+                }
+            }
+        }
+
+        // Get the entity field name from the requires directive
+        if let Some(entity_field_name) = requires.keys().next() {
+            // Find the entity field definition in the parent type
+            if let Some(entity_field_definition) = parent_type.fields.get(entity_field_name) {
+                // Get the entity type from the field definition
+                if let Some(entity_type) = self.schema.get_type(&entity_field_definition.ty) {
+                    // Find the service that owns the entity
+                    let entity_service = if let Some(owner) = entity_type.owner.as_deref() {
+                        owner
+                    } else {
+                        // If owner is None, try to determine the service from the keys and required fields
+                        // For the @requires directive, we need to find the service that can provide the required fields
+                        
+                        // Check which services have keys for this entity
+                        if entity_type.keys.is_empty() {
+                            // If no services have keys for this entity, we can't handle the @requires directive
+                            return;
+                        }
+                        
+                        // For the @requires directive, we need to find the service that can provide the required fields
+                        
+                        // Extract the required field names from the requires directive
+                        let _required_field_names: Vec<&str> = requires
+                            .values()
+                            .flat_map(|fields| fields.keys())
+                            .map(|name| name.as_str())
+                            .collect();
+                        
+                        // Try to find the best service to provide the required fields
+                        // Strategy:
+                        // 1. Look for a service that has all the required fields
+                        // 2. If no service has all the required fields, use the first service with keys
+                        
+                        // First, try to find a service that has all the required fields
+                        // This is a heuristic based on the assumption that a service that has keys for an entity
+                        // and is not the current service is likely to be able to provide the required fields
+                        let mut found_service = None;
+                        for (service_name, _) in &entity_type.keys {
+                            let service_name_str = service_name.as_str();
+                            // Skip the current service, as we're looking for a different service
+                            // that can provide the required fields
+                            if service_name_str != current_service {
+                                found_service = Some(service_name_str);
+                                break;
+                            }
+                        }
+                        
+                        // If we found a suitable service, use it
+                        if let Some(service) = found_service {
+                            service
+                        } else if let Some(first_service) = entity_type.keys.keys().next() {
+                            // Otherwise, use the first service with keys
+                            first_service.as_str()
+                        } else {
+                            // This should never happen because we checked if keys is empty above
+                            // But just in case, return the current service
+                            current_service
+                        }
+                    };
+                    
+                    // Now we have determined the entity service, continue with the rest of the function
+                    
+                    // Add the field to the path for proper tracking
+                    path.push(PathSegment {
+                        name: field.response_key().node.as_str(),
+                        is_list: is_list(&field_definition.ty),
+                        possible_type: None,
+                    });
+
+                    // Create a selection set for this field
+                    let sub_selection_set = SelectionRefSet::default();
+
+                    // Add the field to the selection set
+                    selection_ref_set.0.push(SelectionRef::FieldRef(FieldRef {
+                        field,
+                        selection_set: sub_selection_set,
+                    }));
+
+                    // Get the current key ID for this entity
+                    let prefix = self.take_key_prefix();
+
+                    // Add a RequiredRef to indicate that this field requires additional fields
+                    // This is crucial for the federation gateway to understand the dependencies
+                    selection_ref_set.0.push(SelectionRef::RequiredRef(RequiredRef {
+                        prefix,
+                        fields: requires,
+                        requires: Some(requires),
+                    }));
+
+                    // Create a fetch entity key for the current service and field
+                    let fetch_entity_key = FetchEntityKey {
+                        service: current_service,
+                        path: path.clone(),
+                        ty: parent_type.name.as_str(),
+                    };
+
+                    // Check if this entity already exists in the fetch group
+                    if let Some(fetch_entity) = fetch_entity_group.get_mut(&fetch_entity_key) {
+                        // Remove the field with @requires from the entity's fields to prevent
+                        // it from being fetched before the required fields are available
+                        fetch_entity.fields.retain(|f| f.name.node != field.name.node);
+                    }
+
+                    // Create a separate fetch entity for the field with @requires
+                    // This will be executed after the required fields are fetched
+                    fetch_entity_group.insert(fetch_entity_key, FetchEntity {
+                        parent_type,
+                        prefix,
+                        fields: vec![field],
+                    });
+
+                    // Now, we need to ensure the required fields are fetched from the entity's service
+                    // Create a path for the entity field
+                    let mut entity_path = path.clone();
+                    entity_path.pop(); // Remove the current field
+                    
+                    // Create a fetch entity key for the entity
+                    let entity_fetch_key = FetchEntityKey {
+                        service: entity_service,
+                        path: entity_path,
+                        ty: entity_type.name.as_str(),
+                    };
+
+                    // Check if the entity already exists in the fetch group
+                    let entity_exists = fetch_entity_group.contains_key(&entity_fetch_key);
+                    
+                    if !entity_exists {
+                        // Find the key fields for the entity
+                        if let Some(_keys) = entity_type.keys.get(entity_service).and_then(|x| x.first()) {
+                            // Add the entity to the fetch group with an empty fields vector
+                            // This ensures the entity is fetched from its service
+                            fetch_entity_group.insert(entity_fetch_key, FetchEntity {
+                                parent_type: entity_type,
+                                prefix,
+                                fields: vec![],
+                            });
+                        }
+                    }
+
+                    // Pop the path segment we pushed earlier
+                    path.pop();
+                    return;
+                }
+            }
+        }
+    }
+
+    // New helper function to check if a field can be provided by the current service
+    fn can_field_be_provided(
+        &self,
         parent_type: &'a MetaType,
         field: &'a Field,
-        meta_field: &'a MetaField,
+        current_service: &'a str,
+        selection_set: &'a SelectionSet,
+    ) -> bool {
+        // Check all fields in the parent type to see if any of them have a @provides directive
+        // that can satisfy the requested field
+        for (_, meta_field) in &parent_type.fields {
+            // Skip fields that don't belong to the current service
+            if meta_field.service.as_deref() != Some(current_service) &&
+                parent_type.owner.as_deref() != Some(current_service)
+            {
+                continue;
+            }
+
+            // Check if this field has a @provides directive
+            if let Some(provides) = &meta_field.provides {
+                // Check if the provided fields can satisfy the requested field's selection set
+                if self.selection_set_satisfied_by_provides(field.name.node.as_str(), selection_set, provides) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    // Helper function to check if a selection set is satisfied by a @provides directive
+    fn selection_set_satisfied_by_provides(
+        &self,
+        field_name: &str,
+        selection_set: &'a SelectionSet,
+        provides: &KeyFields,
+    ) -> bool {
+        // Check if the field is directly provided
+        if provides.contains_key(field_name) {
+            // If the field has a selection set, we need to check if all requested fields are provided
+            if !selection_set.items.is_empty() {
+                if let Some(provided_fields) = provides.get(field_name) {
+                    return self.all_selections_satisfied(selection_set, provided_fields);
+                }
+                return false;
+            }
+            return true;
+        }
+        false
+    }
+
+    // Helper function to check if all selections in a selection set are satisfied by provided fields
+    fn all_selections_satisfied(&self, selection_set: &'a SelectionSet, provided_fields: &KeyFields) -> bool {
+        for selection in &selection_set.items {
+            match &selection.node {
+                Selection::Field(field) => {
+                    let field_name = field.node.name.node.as_str();
+
+                    // Skip __typename as it's always available
+                    if field_name == "__typename" {
+                        continue;
+                    }
+
+                    // Check if the field is provided
+                    if !provided_fields.contains_key(field_name) {
+                        return false;
+                    }
+
+                    // If this field has a selection set, recursively check it
+                    if !field.node.selection_set.node.items.is_empty() {
+                        if let Some(sub_provided_fields) = provided_fields.get(field_name) {
+                            if !self.all_selections_satisfied(&field.node.selection_set.node, sub_provided_fields) {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                },
+                // Handle fragment spreads by checking the fragment's selection set
+                Selection::FragmentSpread(fragment_spread) => {
+                    if let Some(fragment) = self.fragments.get(&fragment_spread.node.fragment_name.node) {
+                        // Check if all selections in the fragment are satisfied
+                        if !self.all_selections_satisfied(&fragment.node.selection_set.node, provided_fields) {
+                            return false;
+                        }
+                    } else {
+                        // If we can't find the fragment, we can't guarantee it's satisfied
+                        return false;
+                    }
+                },
+                // Handle inline fragments by checking their selection sets
+                Selection::InlineFragment(inline_fragment) => {
+                    // For inline fragments, we need to check if the type condition is compatible
+                    // with the provided fields. For simplicity, we'll just check the selection set.
+                    if !self.all_selections_satisfied(&inline_fragment.node.selection_set.node, provided_fields) {
+                        return false;
+                    }
+                },
+            }
+        }
+        true
+    }
+
+    fn add_fetch_entity(
+        &mut self,
+        field: &'a Field,
+        field_definition: &'a MetaField,
+        parent_type: &'a MetaType,
         service: &'a str,
-        keys: &'a KeyFields,
+        _selection_ref_set: &mut SelectionRefSet<'a>,
+        fetch_entity_group: &mut FetchEntityGroup<'a>,
+        path: &mut ResponsePath<'a>,
     ) {
+        // Add the field to the path for proper tracking
+        path.push(PathSegment {
+            name: field.response_key().node.as_str(),
+            is_list: is_list(&field_definition.ty),
+            possible_type: None,
+        });
+
+        // Create a fetch entity key for this field
         let fetch_entity_key = FetchEntityKey {
             service,
             path: path.clone(),
             ty: parent_type.name.as_str(),
         };
 
-        match fetch_entity_group.get_mut(&fetch_entity_key) {
-            Some(fetch_entity) => {
+        // Check if this entity already exists in the fetch group
+        let entity_exists = fetch_entity_group.contains_key(&fetch_entity_key);
+        
+        if !entity_exists {
+            // Create a new entity with a unique prefix
+            let prefix = self.take_key_prefix();
+            
+            // Add the entity to the fetch group
+            fetch_entity_group.insert(fetch_entity_key, FetchEntity {
+                parent_type,
+                prefix,
+                fields: vec![field],
+            });
+        } else {
+            // Add the field to the existing entity
+            if let Some(fetch_entity) = fetch_entity_group.get_mut(&fetch_entity_key) {
                 fetch_entity.fields.push(field);
-                if meta_field.requires.is_some() {
-                    selection_ref_set.0.push(SelectionRef::RequiredRef(RequiredRef {
-                        prefix: self.key_id - 1,
-                        fields: keys,
-                        requires: meta_field.requires.as_ref(),
-                    }));
-                }
-            },
-            None => {
-                let prefix = self.take_key_prefix();
-                selection_ref_set.0.push(SelectionRef::RequiredRef(RequiredRef {
-                    prefix,
-                    fields: keys,
-                    requires: meta_field.requires.as_ref(),
-                }));
-                fetch_entity_group.insert(fetch_entity_key, FetchEntity {
-                    parent_type,
-                    prefix,
-                    fields: vec![field],
-                });
-            },
+            }
         }
+
+        // Pop the path segment we pushed earlier
+        path.pop();
     }
 
     fn build_selection_set(
@@ -851,11 +1207,24 @@ impl<'a> Context<'a> {
             true
         }
 
+        // Check if the field is directly in the keys
         if let Some(children) = keys.get(field.name.node.as_str()) {
-            selection_set_in_keys(self, &field.selection_set.node, children)
-        } else {
-            false
+            return selection_set_in_keys(self, &field.selection_set.node, children);
         }
+
+        // For compound keys like "id username", we need to check if the field is part of the key
+        // Check if the field name is one of the top-level keys in the KeyFields
+        for key_name in keys.keys() {
+            // For compound keys, the key name might be something like "id username"
+            // Split by whitespace and check if the field name is one of the parts
+            if key_name.split_whitespace().any(|part| part == field.name.node.as_str()) {
+                // If the field is part of a compound key, we consider it to be in the keys
+                return true;
+            }
+        }
+
+        // If we get here, the field is not in the keys
+        false
     }
 }
 

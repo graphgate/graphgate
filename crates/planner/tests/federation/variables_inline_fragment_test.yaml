@@ -1,0 +1,49 @@
+name: "Variables with Inline Fragment Test"
+description: "Tests that variables are correctly passed to the underlying services when using inline fragments"
+
+schema:
+  accounts: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      username: String!
+    }
+
+    type Query {
+      user(id: ID!): User
+    }
+
+    directive @key(fields: String!) on OBJECT
+
+query: |
+  query($id: ID!) {
+    ... {
+      user(id: $id) {
+        id username
+      }
+    }
+  }
+
+variables: { "id": "user1" }
+
+expected_plan:
+  type: "fetch"
+  service: "accounts"
+  variables: { "id": "user1" }
+  query: "query($id: ID!)\n{ user(id: $id) { id username } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "accounts"
+  - assertion_type: "path_exists"
+    path: "user"
+    value: true

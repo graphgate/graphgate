@@ -1,0 +1,51 @@
+name: "Fragment Spread Test"
+description: "Tests that fragment spreads are correctly handled in GraphQL queries"
+
+schema:
+  accounts: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      username: String!
+    }
+
+    type Query {
+      me: User @resolve(service: "accounts")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  fragment A on User {
+    id username
+  }
+
+  {
+    me {
+      ... A
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "fetch"
+  service: "accounts"
+  query: "query\n{ me { id username } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "accounts"
+  - assertion_type: "path_exists"
+    path: "me"
+    value: true

@@ -1,0 +1,116 @@
+name: "Complex Key Fields Test"
+description: |
+  Tests that the planner correctly handles complex @key directives with compound fields.
+
+  This test verifies that entities can be properly referenced and resolved when their
+  @key directive includes multiple fields like "id username" instead of just a single field.
+
+schema:
+  users: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@external"
+        ]
+      )
+
+    type Query {
+      me: User
+      user(id: ID!): User
+    }
+
+    type User @key(fields: "id username") {
+      id: ID!
+      username: String!
+      name: String!
+      email: String!
+      # We don't define posts field here at all
+    }
+
+    type Post @key(fields: "id") {
+      id: ID!
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION | OBJECT
+    directive @external on FIELD_DEFINITION
+
+  posts: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@external",
+          "@shareable",
+          "@provides"
+        ]
+      )
+
+    type Query {
+      posts: [Post!]!
+      userPosts(userId: ID!): [Post!]!
+    }
+
+    type Post @key(fields: "id") {
+      id: ID!
+      title: String!
+      content: String!
+      author: User @external
+    }
+
+    # This is an entity that extends User from the users service
+    extend type User @key(fields: "id username") {
+      id: ID! @external
+      username: String! @external
+      # This field is defined in this service
+      posts: [Post!]!
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @shareable on FIELD_DEFINITION | OBJECT
+    directive @provides(fields: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    user(id: "1") {
+      id
+      username
+      name
+      email
+      posts {
+        id
+        title
+        content
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "users"
+      query: "query\n{ user(id: \"1\") { id username name email __key1___typename:__typename __key1_id:id __key1_username:username } }"
+    - type: "flatten"
+      service: "posts"
+      path: "user"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on User { posts { id title content } } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "users"
+  - assertion_type: "contains_service"
+    value: "posts"
+  - assertion_type: "path_exists"
+    path: "user.posts"
+    value: true

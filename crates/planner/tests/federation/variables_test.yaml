@@ -1,0 +1,53 @@
+name: "Variables Test"
+description: "Tests that variables are correctly passed to the underlying services"
+
+schema:
+  accounts: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      username: String!
+    }
+
+    type Query {
+      user(id: ID!): User
+    }
+
+    directive @key(fields: String!) on OBJECT
+
+query: |
+  query($u1: ID!, $u2: ID!) {
+    u1: user(id: $u1) {
+      id username
+    }
+    u2: user(id: $u2) {
+      id username
+    }
+  }
+
+variables: { "u1": "user1", "u2": "user2" }
+
+expected_plan:
+  type: "fetch"
+  service: "accounts"
+  variables: { "u1": "user1", "u2": "user2" }
+  query: "query($u1: ID!, $u2: ID!)\n{ u1:user(id: $u1) { id username } u2:user(id: $u2) { id username } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "accounts"
+  - assertion_type: "path_exists"
+    path: "u1"
+    value: true
+  - assertion_type: "path_exists"
+    path: "u2"
+    value: true

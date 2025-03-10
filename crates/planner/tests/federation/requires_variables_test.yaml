@@ -1,0 +1,114 @@
+name: "Requires Variables Test"
+description: |
+  Tests that the @requires directive correctly handles variables.
+
+  This test verifies that when a field with @requires is used with variables,
+  the planner correctly passes the variables to the appropriate services.
+
+schema:
+  users_vars: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type UserVars @key(fields: "id") {
+      id: ID!
+      name: String!
+      country: String! @shareable
+    }
+
+    type Query {
+      userVars(id: ID!): UserVars @resolve(service: "users_vars")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products_vars: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@external",
+          "@requires"
+        ]
+      )
+
+    type ProductVars @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Float!
+      # This field requires the user's country to calculate shipping cost
+      shippingCost(userId: ID!): Float! @requires(fields: "userVars(userId: $userId) { country }")
+      userVars(userId: ID!): UserVars
+    }
+
+    type UserVars @key(fields: "id") {
+      id: ID!
+      country: String! @external
+    }
+
+    type Query {
+      productVars(id: ID!): ProductVars @resolve(service: "products_vars")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  query GetProductWithShipping($productId: ID!, $userId: ID!) {
+    productVars(id: $productId) {
+      id
+      name
+      price
+      shippingCost(userId: $userId)
+      userVars(userId: $userId) {
+        id
+        name
+        country
+      }
+    }
+  }
+
+variables: { "productId": "product1", "userId": "user1" }
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products_vars"
+      query: "query GetProductWithShipping($productId: ID!, $userId: ID!)\n{ productVars(id: $productId) { id name price userVars(userId: $userId) { id __key1___typename:__typename __key1_id:id } } }"
+      variables: { "productId": "product1", "userId": "user1" }
+    - type: "flatten"
+      service: "users_vars"
+      path: "productVars.[userVars]"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on UserVars { name country } } }"
+    - type: "flatten"
+      service: "products_vars"
+      path: "productVars"
+      prefix: 1
+      query: "query GetProductWithShipping($productId: ID!, $userId: ID!)\n{ productVars(id: $productId) { shippingCost(userId: $userId) } }"
+      variables: { "productId": "product1", "userId": "user1" }
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "users_vars"
+  - assertion_type: "contains_service"
+    value: "products_vars"
+  - assertion_type: "path_exists"
+    path: "productVars.shippingCost"
+    value: true
+  - assertion_type: "variables_passed"
+    value: true

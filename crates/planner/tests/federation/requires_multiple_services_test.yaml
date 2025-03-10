@@ -1,0 +1,152 @@
+name: "Requires Multiple Services Test"
+description: |
+  Tests that the @requires directive correctly handles dependencies across multiple services.
+
+  This test verifies that when a field with @requires depends on data from multiple services,
+  the planner correctly orchestrates the data fetching across all services in the right order.
+
+schema:
+  users_ms: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type UserMS @key(fields: "id") {
+      id: ID!
+      name: String!
+      country: String! @shareable
+      tier: String! @shareable
+    }
+
+    type Query {
+      userMS(id: ID!): UserMS @resolve(service: "users_ms")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  inventory_ms: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type ProductMS @key(fields: "id") {
+      id: ID!
+      stock: Int! @shareable
+      warehouse: String! @shareable
+    }
+
+    type Query {
+      productMS(id: ID!): ProductMS @resolve(service: "inventory_ms")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products_ms: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@external",
+          "@requires"
+        ]
+      )
+
+    type ProductMS @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Float!
+      stock: Int! @external
+      warehouse: String! @external
+      # This field requires both user data and inventory data
+      deliveryEstimate(userId: ID!): String! @requires(fields: "userMS(userId: $userId) { country tier } stock warehouse")
+      userMS(userId: ID!): UserMS
+    }
+
+    type UserMS @key(fields: "id") {
+      id: ID!
+      country: String! @external
+      tier: String! @external
+    }
+
+    type Query {
+      topProductsMS: [ProductMS!]! @resolve(service: "products_ms")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  query GetDeliveryEstimate($userId: ID!) {
+    topProductsMS {
+      id
+      name
+      price
+      stock
+      warehouse
+      deliveryEstimate(userId: $userId)
+      userMS(userId: $userId) {
+        id
+        name
+        country
+        tier
+      }
+    }
+  }
+
+variables: { "userId": "user1" }
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products_ms"
+      query: "query GetDeliveryEstimate($userId: ID!)\n{ topProductsMS { id name price userMS(userId: $userId) { id __key1___typename:__typename __key1_id:id } __key1___typename:__typename __key1_id:id } }"
+      variables: { "userId": "user1" }
+    - type: "flatten"
+      service: "users_ms"
+      path: "topProductsMS.[userMS]"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on UserMS { name country tier } } }"
+    - type: "flatten"
+      service: "inventory_ms"
+      path: "topProductsMS"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on ProductMS { stock warehouse } } }"
+    - type: "flatten"
+      service: "products_ms"
+      path: "topProductsMS"
+      prefix: 1
+      query: "query GetDeliveryEstimate($userId: ID!)\n{ topProductsMS { deliveryEstimate(userId: $userId) } }"
+      variables: { "userId": "user1" }
+
+assertions:
+  - assertion_type: "service_count"
+    value: 3
+  - assertion_type: "contains_service"
+    value: "users_ms"
+  - assertion_type: "contains_service"
+    value: "products_ms"
+  - assertion_type: "contains_service"
+    value: "inventory_ms"
+  - assertion_type: "path_exists"
+    path: "topProductsMS.deliveryEstimate"
+    value: true
+  - assertion_type: "node_count"
+    value: 4

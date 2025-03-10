@@ -1,0 +1,152 @@
+name: "Circular Dependencies Test"
+description: "Tests a query with circular dependencies between services (users → posts → comments → users)"
+
+schema:
+  users: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@provides"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      email: String! @shareable
+      posts: [Post!]! @shareable @provides(fields: "id author { id }")
+    }
+
+    type Comment @key(fields: "id") {
+      id: ID!
+      author: User! @shareable @resolve(service: "users")
+    }
+
+    type Query {
+      me: User! @resolve(service: "users")
+      user(id: ID!): User @resolve(service: "users")
+      users: [User!]! @resolve(service: "users")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @provides(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  posts: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@provides"
+        ]
+      )
+
+    type Post @key(fields: "id") {
+      id: ID!
+      title: String! @shareable
+      content: String! @shareable
+      author: User! @shareable @provides(fields: "id")
+      comments: [Comment!]! @shareable @provides(fields: "id")
+      createdAt: String!
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      posts: [Post!]! @shareable @resolve(service: "posts")
+    }
+
+    type Comment @key(fields: "id") {
+      id: ID!
+      post: Post! @shareable @provides(fields: "id")
+    }
+
+    type Query {
+      post(id: ID!): Post @resolve(service: "posts")
+      posts: [Post!]! @resolve(service: "posts")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @provides(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  comments: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@provides"
+        ]
+      )
+
+    type Comment @key(fields: "id") {
+      id: ID!
+      text: String!
+      post: Post! @shareable @provides(fields: "id")
+      author: User! @shareable @provides(fields: "id")
+      createdAt: String!
+    }
+
+    type Post @key(fields: "id") {
+      id: ID!
+      comments: [Comment!]! @shareable @resolve(service: "comments")
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+    }
+
+    type Query {
+      comment(id: ID!): Comment @resolve(service: "comments")
+      comments: [Comment!]! @resolve(service: "comments")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @provides(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    users {
+      id
+      name
+      posts {
+        id
+        title
+        comments {
+          id
+          text
+          author {
+            id
+            name
+            posts {
+              id
+              title
+            }
+          }
+        }
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "fetch"
+  service: "users"
+  query: "query\n{ users { id name posts { id title comments { id text author { id name posts { id title } } } } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "users"
+  - assertion_type: "path_exists"
+    path: "users.posts.comments.author.posts"
+    value: true
