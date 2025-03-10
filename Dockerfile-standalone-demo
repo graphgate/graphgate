@@ -1,4 +1,4 @@
-FROM rust:1.73 as builder
+FROM rust:1.73 AS builder
 RUN apt-get update && apt-get install -y libssl-dev
 
 COPY . /tmp
@@ -34,7 +34,9 @@ accounts&\n\
 products&\n\
 reviews&\n\
 sleep 1\n\
-graphgate /etc/graphgate.conf\n\
+CONFIG_FILE=/etc/graphgate.conf\n\
+GATEWAY_NAME=graphgate\n\
+graphgate\n\
 " > /usr/bin/start.sh
 
 ENTRYPOINT [ "bash", "/usr/bin/start.sh" ]

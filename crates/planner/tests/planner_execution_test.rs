@@ -67,13 +67,13 @@ fn test_federation() {
     let variables = s.next().unwrap();
     let planner_json = s.next().unwrap();
     let schema = ComposedSchema::combine([
-        ("collectibles".to_string(), collectibles_service_document.clone()),
-        ("collections".to_string(), collections_service_document.clone()),
+        ("Collectibles".to_string(), collectibles_service_document.clone()),
+        ("Collections".to_string(), collections_service_document.clone()),
     ])
     .unwrap();
     let reverse_order_schema = ComposedSchema::combine([
-        ("collections".to_string(), collections_service_document),
-        ("collectibles".to_string(), collectibles_service_document),
+        ("Collections".to_string(), collections_service_document),
+        ("Collectibles".to_string(), collectibles_service_document),
     ])
     .unwrap();
     let document = parser::parse_query(graphql).unwrap();

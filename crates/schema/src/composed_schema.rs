@@ -30,6 +30,23 @@ use value::{ConstValue, Name};
 
 use crate::{type_ext::TypeExt, CombineError};
 
+/// Common scalar types that are allowed to be defined in multiple subgraphs without conflicts.
+///
+/// In GraphQL Federation v2, these scalar types are considered standard and can be shared
+/// across subgraphs without requiring the `@shareable` directive. This is because they have
+/// well-defined semantics and serialization formats that are expected to be consistent
+/// across all implementations.
+///
+/// Including:
+/// - `DateTime`: ISO-8601 encoded date-time string
+/// - `Date`: ISO-8601 encoded date string
+/// - `Time`: ISO-8601 encoded time string
+/// - `JSON`: Arbitrary JSON value
+/// - `UUID`: Universally unique identifier string
+/// - `Email`: Email address string
+/// - `URL`: URL string
+const COMMON_SCALAR_TYPES: [&str; 7] = ["DateTime", "Date", "Time", "JSON", "UUID", "Email", "URL"];
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum Deprecation {
     NoDeprecated,
@@ -107,6 +124,7 @@ pub struct MetaType {
     pub kind: TypeKind,
     pub owner: Option<String>,
     pub keys: HashMap<String, Vec<KeyFields>>,
+    pub is_entity: bool,
 
     pub implements: IndexSet<Name>,
     pub fields: IndexMap<Name, MetaField>,
@@ -119,6 +137,11 @@ impl MetaType {
     #[inline]
     pub fn field_by_name(&self, name: &str) -> Option<&MetaField> {
         self.fields.get(name)
+    }
+
+    #[inline]
+    pub fn is_entity(&self) -> bool {
+        self.is_entity
     }
 
     #[inline]
@@ -226,6 +249,7 @@ impl ComposedSchema {
                 kind: TypeKind::Object,
                 owner: None,
                 keys: Default::default(),
+                is_entity: false,
                 implements: Default::default(),
                 fields: Default::default(),
                 possible_types: Default::default(),
@@ -238,7 +262,22 @@ impl ComposedSchema {
         composed_schema.mutation_type = Some(Name::new("Mutation"));
         composed_schema.subscription_type = Some(Name::new("Subscription"));
 
+        // Store the original type definitions for validation later
+        let mut original_type_definitions = HashMap::new();
+
         for (service, doc) in federation_sdl {
+            // First pass: store original type definitions for validation
+            for definition in &doc.definitions {
+                if let TypeSystemDefinition::Type(type_definition) = definition {
+                    let type_name = type_definition.node.name.node.to_string();
+                    original_type_definitions
+                        .entry(type_name)
+                        .or_insert_with(HashMap::new)
+                        .insert(service.clone(), type_definition.clone());
+                }
+            }
+
+            // Second pass: process definitions
             for definition in doc.definitions {
                 match definition {
                     TypeSystemDefinition::Type(type_definition) => {
@@ -252,6 +291,7 @@ impl ComposedSchema {
                                 kind: TypeKind::Object,
                                 owner: None,
                                 keys: Default::default(),
+                                is_entity: false,
                                 implements: Default::default(),
                                 fields: Default::default(),
                                 possible_types: Default::default(),
@@ -261,11 +301,18 @@ impl ComposedSchema {
 
                             let mut type_is_shareable = false;
                             let mut type_is_resolvable = true;
+
+                            // Check if the type is already marked as shareable
+                            let already_shareable = meta_type.owner.is_none();
+
                             for directive in type_definition.node.directives {
                                 if directive.node.name.node.as_str() == "shareable" {
                                     type_is_shareable = true;
                                 }
                                 if directive.node.name.node.as_str() == "key" {
+                                    // Mark this type as an entity since it has a @key directive
+                                    meta_type.is_entity = true;
+
                                     if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
                                         if let Some(selection_set) = parse_fields(fields.node)
                                             .map(|selection_set| Positioned::new(selection_set, directive.pos))
@@ -284,18 +331,132 @@ impl ComposedSchema {
                                 }
                             }
 
-                            if !is_extend && !type_is_shareable && type_is_resolvable {
-                                meta_type.owner = Some(service.clone());
+                            // If the type is shareable or was already marked as shareable, ensure it has no owner
+                            if type_is_shareable || already_shareable {
+                                meta_type.owner = None;
+                            } else if !is_extend && !type_is_shareable && type_is_resolvable {
+                                // For non-shareable, non-extended types, set the owner
+                                // Entity types can be referenced across subgraphs, so they don't need an owner
+                                if !meta_type.is_entity {
+                                    meta_type.owner = Some(service.clone());
+                                }
                             };
+
+                            // If this is an entity type that already exists in the schema and is not marked as
+                            // shareable, check that all fields from the original definition
+                            // are included
+                            if meta_type.is_entity && !meta_type.fields.is_empty() {
+                                // Check if the type is marked as shareable in any service
+                                let type_is_shareable_in_any_service = type_is_shareable ||
+                                    meta_type.owner.is_none() ||
+                                    original_type_definitions
+                                        .get(&meta_type.name.to_string())
+                                        .map(|defs| {
+                                            defs.values().any(|def| {
+                                                def.node
+                                                    .directives
+                                                    .iter()
+                                                    .any(|dir| dir.node.name.node.as_str() == "shareable")
+                                            })
+                                        })
+                                        .unwrap_or(false);
+
+                                // If the type is shareable in any service, we don't need to check for missing fields
+                                if !type_is_shareable_in_any_service {
+                                    // Get all fields defined in this service
+                                    let current_fields: Vec<String> =
+                                        fields.iter().map(|f| f.node.name.node.to_string()).collect();
+
+                                    // Get all fields defined in the original type
+                                    let original_fields: Vec<String> =
+                                        meta_type.fields.keys().map(|k| k.to_string()).collect();
+
+                                    // Find fields that are in the original type but not in this service
+                                    let missing_fields: Vec<String> = original_fields
+                                        .iter()
+                                        .filter(|f| !current_fields.contains(f))
+                                        .cloned()
+                                        .collect();
+
+                                    // If there are missing fields and this is not the first definition of the type,
+                                    // return an error
+                                    if !missing_fields.is_empty() && !meta_type.fields.is_empty() {
+                                        // Skip key fields, which can be referenced without being redefined
+                                        let key_fields: Vec<String> = meta_type
+                                            .keys
+                                            .values()
+                                            .flat_map(|keys| keys.iter())
+                                            .flat_map(|key| key.0.keys())
+                                            .map(|k| k.to_string())
+                                            .collect();
+
+                                        // Filter out key fields from missing fields
+                                        let missing_non_key_fields: Vec<String> = missing_fields.iter()
+                                            .filter(|f| !key_fields.contains(f))
+                                            .filter(|f| *f != "id") // Always allow 'id' field to be referenced
+                                            .cloned()
+                                            .collect();
+
+                                        // Only return an error if there are missing non-key fields and the type is not
+                                        // shareable
+                                        if !missing_non_key_fields.is_empty() {
+                                            // Check if this is a reference to an entity type with only key fields
+                                            let only_key_fields =
+                                                current_fields.iter().all(|f| key_fields.contains(f) || f == "id");
+
+                                            // If this is a reference to an entity type with only key fields, allow it
+                                            if !only_key_fields {
+                                                return Err(CombineError::IncompleteEntityReference {
+                                                    type_name: meta_type.name.to_string(),
+                                                    service: service.clone(),
+                                                    missing_fields: missing_non_key_fields.join(", "),
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             meta_type
                                 .implements
                                 .extend(implements.into_iter().map(|implement| implement.node));
 
-                            for field in fields {
+                            for field in fields.clone() {
                                 if is_extend {
                                     let is_external = has_directive(&field.node.directives, "external");
                                     if is_external {
+                                        // Check if the field is referenced with @external but not marked as @shareable
+                                        // in its owning service
+                                        let field_name = field.node.name.node.as_str();
+
+                                        // Skip key fields, which can be referenced without @shareable
+                                        let is_field_entity_key = meta_type
+                                            .keys
+                                            .get(&service)
+                                            .map(|value| {
+                                                value
+                                                    .iter()
+                                                    .flat_map(|key_fields| key_fields.0.keys())
+                                                    .any(|name| name.as_str() == field_name)
+                                            })
+                                            .unwrap_or(false);
+
+                                        if !is_field_entity_key {
+                                            // Find the field in the original fields list to check if it's shareable
+                                            let original_field =
+                                                fields.iter().find(|f| f.node.name.node.as_str() == field_name);
+                                            let is_field_shareable = original_field
+                                                .is_some_and(|f| has_directive(&f.node.directives, "shareable"));
+
+                                            if !type_is_shareable && !is_field_shareable {
+                                                return Err(CombineError::NonShareableFieldReferenced {
+                                                    type_name: meta_type.name.to_string(),
+                                                    field_name: field_name.to_string(),
+                                                    service: service.clone(),
+                                                });
+                                            }
+                                        }
+
                                         continue;
                                     }
                                 }
@@ -312,13 +473,149 @@ impl ComposedSchema {
                                                 .any(|name| name == &field.node.name.node)
                                         })
                                         .unwrap_or(false);
+
+                                    // Check for incompatible field arguments
+                                    let existing_field = meta_type
+                                        .fields
+                                        .get(&field.node.name.node)
+                                        .expect("Field should exist as we just checked with contains_key");
+                                    let new_field = convert_field_definition(field.node.clone());
+
+                                    // If the field has arguments, check that they are compatible
+                                    if !existing_field.arguments.is_empty() || !new_field.arguments.is_empty() {
+                                        // Check if the arguments are compatible
+                                        let mut is_compatible = true;
+
+                                        // Check that all required arguments in the existing field are present in the
+                                        // new field
+                                        for (arg_name, arg) in &existing_field.arguments {
+                                            if !arg.ty.nullable && arg.default_value.is_none() {
+                                                // This is a required argument
+                                                if let Some(new_arg) = new_field.arguments.get(arg_name) {
+                                                    // The argument exists in the new field, check that it's compatible
+                                                    if new_arg.ty != arg.ty {
+                                                        // The types are incompatible
+                                                        is_compatible = false;
+
+                                                        if !is_field_shareable {
+                                                            // If the field is not shareable, return a specific error
+                                                            return Err(CombineError::IncompatibleArgumentTypes {
+                                                                type_name: type_definition.node.name.node.to_string(),
+                                                                field_name: field.node.name.node.to_string(),
+                                                                arg_name: arg_name.to_string(),
+                                                                type1: arg.ty.to_string(),
+                                                                type2: new_arg.ty.to_string(),
+                                                            });
+                                                        }
+
+                                                        break;
+                                                    }
+                                                } else {
+                                                    // The required argument is missing in the new field
+                                                    is_compatible = false;
+
+                                                    if !is_field_shareable {
+                                                        // If the field is not shareable, return a specific error
+                                                        return Err(CombineError::MissingRequiredArgument {
+                                                            type_name: type_definition.node.name.node.to_string(),
+                                                            field_name: field.node.name.node.to_string(),
+                                                            arg_name: arg_name.to_string(),
+                                                            service: service.clone(),
+                                                        });
+                                                    }
+
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        // Check that all required arguments in the new field are present in the
+                                        // existing field
+                                        for (arg_name, arg) in &new_field.arguments {
+                                            if !arg.ty.nullable && arg.default_value.is_none() {
+                                                // This is a required argument
+                                                if let Some(existing_arg) = existing_field.arguments.get(arg_name) {
+                                                    // The argument exists in the existing field, check that it's
+                                                    // compatible
+                                                    if existing_arg.ty != arg.ty {
+                                                        // The types are incompatible
+                                                        is_compatible = false;
+
+                                                        if !is_field_shareable {
+                                                            // If the field is not shareable, return a specific error
+                                                            return Err(CombineError::IncompatibleArgumentTypes {
+                                                                type_name: type_definition.node.name.node.to_string(),
+                                                                field_name: field.node.name.node.to_string(),
+                                                                arg_name: arg_name.to_string(),
+                                                                type1: existing_arg.ty.to_string(),
+                                                                type2: arg.ty.to_string(),
+                                                            });
+                                                        }
+
+                                                        break;
+                                                    }
+                                                } else {
+                                                    // The required argument is missing in the existing field
+                                                    is_compatible = false;
+
+                                                    if !is_field_shareable {
+                                                        // If the field is not shareable, return a specific error
+                                                        return Err(CombineError::MissingRequiredArgument {
+                                                            type_name: type_definition.node.name.node.to_string(),
+                                                            field_name: field.node.name.node.to_string(),
+                                                            arg_name: arg_name.to_string(),
+                                                            service: existing_field
+                                                                .service
+                                                                .clone()
+                                                                .unwrap_or_else(|| "unknown".to_string()),
+                                                        });
+                                                    }
+
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        if !is_compatible {
+                                            // If the arguments are incompatible, check if the field is shareable
+                                            if !is_field_shareable {
+                                                // If the field is not shareable, return an error
+                                                return Err(CombineError::IncompatibleFieldArguments {
+                                                    type_name: type_definition.node.name.node.to_string(),
+                                                    field_name: field.node.name.node.to_string(),
+                                                    service1: existing_field
+                                                        .service
+                                                        .clone()
+                                                        .unwrap_or_else(|| "unknown".to_string()),
+                                                    service2: service.clone(),
+                                                });
+                                            }
+                                        }
+                                    }
+
+                                    // In Federation v2, fields must be explicitly marked as @shareable
+                                    // or be part of an entity key to be shared across services
                                     if !type_is_shareable && !is_field_shareable && !is_field_entity_key {
-                                        return Err(CombineError::FieldConflicted {
-                                            type_name: type_definition.node.name.node.to_string(),
-                                            field_name: field.node.name.node.to_string(),
-                                        });
+                                        // Check if the field has the same type in both services
+                                        if existing_field.ty != new_field.ty {
+                                            // If the field types are different, provide a more specific error
+                                            return Err(CombineError::FieldTypeConflicted {
+                                                type_name: type_definition.node.name.node.to_string(),
+                                                field_name: field.node.name.node.to_string(),
+                                                type1: existing_field.ty.to_string(),
+                                                type2: new_field.ty.to_string(),
+                                            });
+                                        } else {
+                                            // If the field types are the same, suggest using @shareable
+                                            return Err(CombineError::FieldConflicted {
+                                                type_name: type_definition.node.name.node.to_string(),
+                                                field_name: field.node.name.node.to_string(),
+                                            });
+                                        }
                                     }
                                 }
+
+                                // Convert the field definition and add it to the meta_type
                                 let mut meta_field = convert_field_definition(field.node);
                                 if is_extend {
                                     meta_field.service = Some(service.clone());
@@ -326,15 +623,76 @@ impl ComposedSchema {
                                 meta_type.fields.insert(meta_field.name.clone(), meta_field);
                             }
                         } else {
-                            let meta_type = convert_type_definition(type_definition.node);
-                            if let Some(meta_type2) = composed_schema.types.get(&meta_type.name) {
-                                if meta_type2 != &meta_type {
-                                    return Err(CombineError::DefinitionConflicted {
-                                        type_name: meta_type.name.to_string(),
-                                    });
+                            // Check if the type is marked as shareable before converting
+                            let mut type_is_shareable = false;
+                            for directive in &type_definition.node.directives {
+                                if directive.node.name.node.as_str() == "shareable" {
+                                    type_is_shareable = true;
+                                    break;
                                 }
                             }
-                            composed_schema.types.insert(meta_type.name.clone(), meta_type);
+
+                            let meta_type = convert_type_definition(type_definition.node);
+                            if let Some(meta_type2) = composed_schema.types.get(&meta_type.name) {
+                                let both_are_scalars =
+                                    meta_type.kind == TypeKind::Scalar && meta_type2.kind == TypeKind::Scalar;
+
+                                let is_common_scalar = COMMON_SCALAR_TYPES.contains(&meta_type.name.as_str());
+
+                                // Allow common scalar types to be defined in multiple subgraphs
+                                if both_are_scalars && is_common_scalar {
+                                    // Common scalar types are allowed to be defined in multiple subgraphs
+                                    continue;
+                                }
+
+                                // If the type is already in the schema and has an owner, enforce ownership rules
+                                if let Some(owner_service) = &meta_type2.owner {
+                                    // If the type is not shareable, it can only be defined in one subgraph
+                                    // Exception: entity types can be referenced across subgraphs
+                                    if !type_is_shareable && !meta_type2.is_entity {
+                                        return Err(CombineError::ValueTypeOwnershipConflicted {
+                                            type_name: meta_type.name.to_string(),
+                                            owner_service: owner_service.clone(),
+                                            current_service: service.clone(),
+                                        });
+                                    }
+                                }
+
+                                // If the definitions don't match, return an error
+                                if meta_type2 != &meta_type {
+                                    // Check if the kinds are different
+                                    if meta_type2.kind != meta_type.kind {
+                                        return Err(CombineError::TypeKindConflicted {
+                                            type_name: meta_type.name.to_string(),
+                                            kind1: format!("{:?}", meta_type2.kind),
+                                            kind2: format!("{:?}", meta_type.kind),
+                                        });
+                                    } else {
+                                        return Err(CombineError::DefinitionConflicted {
+                                            type_name: meta_type.name.to_string(),
+                                        });
+                                    }
+                                }
+
+                                // If the type is shareable, ensure it has no owner
+                                if type_is_shareable {
+                                    let meta_type2 = composed_schema.types.get_mut(&meta_type.name).unwrap();
+                                    meta_type2.owner = None;
+                                }
+                            } else {
+                                // This is the first time we're seeing this type
+                                // Set the owner for non-shareable types
+                                let mut type_to_insert = meta_type;
+
+                                // Only set an owner if the type is not shareable
+                                if !type_is_shareable {
+                                    type_to_insert.owner = Some(service.clone());
+                                }
+
+                                composed_schema
+                                    .types
+                                    .insert(type_to_insert.name.clone(), type_to_insert);
+                            }
                         }
                     },
                     TypeSystemDefinition::Schema(_schema_definition) => {},
@@ -345,15 +703,46 @@ impl ComposedSchema {
 
         if let Some(mutation) = composed_schema.types.get("Mutation") {
             if mutation.fields.is_empty() {
-                composed_schema.types.remove("Mutation");
+                composed_schema.types.swap_remove("Mutation");
                 composed_schema.mutation_type = None;
             }
         }
 
         if let Some(subscription) = composed_schema.types.get("Subscription") {
             if subscription.fields.is_empty() {
-                composed_schema.types.remove("Subscription");
+                composed_schema.types.swap_remove("Subscription");
                 composed_schema.subscription_type = None;
+            }
+        }
+
+        // Validate key fields
+        for (type_name, meta_type) in &composed_schema.types {
+            if meta_type.is_entity {
+                for (service, key_fields_vec) in &meta_type.keys {
+                    // Find the original type definition
+                    if let Some(service_types) = original_type_definitions.get(type_name.as_str()) {
+                        if let Some(type_def) = service_types.get(service) {
+                            if let types::TypeKind::Object(object_type) = &type_def.node.kind {
+                                // Get all field names from the object type
+                                let field_names: Vec<&str> =
+                                    object_type.fields.iter().map(|f| f.node.name.node.as_str()).collect();
+
+                                // Validate each key fields set
+                                for key_fields in key_fields_vec {
+                                    for key_field_name in key_fields.keys() {
+                                        if !field_names.contains(&key_field_name.as_str()) {
+                                            return Err(CombineError::KeyFieldsMissing {
+                                                type_name: type_name.to_string(),
+                                                field_name: key_field_name.to_string(),
+                                                service: service.clone(),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -438,6 +827,7 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
         kind: TypeKind::Scalar,
         owner: None,
         keys: Default::default(),
+        is_entity: false,
         implements: Default::default(),
         fields: Default::default(),
         possible_types: Default::default(),
@@ -490,6 +880,9 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
 
     for directive in definition.directives {
         match directive.node.name.node.as_str() {
+            "shareable" => {
+                type_definition.owner = None;
+            },
             "owner" => {
                 if let Some(service) = get_argument_str(&directive.node.arguments, "service") {
                     type_definition.owner = Some(service.node.to_string());

@@ -38,17 +38,13 @@ async-graphql-warp.workspace = true
 async-stream.workspace = true
 fastrand = "2.0.1"
 
-[[example]]
-name = "builtin_scalar_bug"
-path = "./examples/builtin_scalar_bug/bug.rs"
-
 [workspace]
 members = [
     "crates/*"
 ]
 [workspace.package]
-version = "0.6.1"
-authors = ["Sunli <scott_s829@163.com>", "Nikita Bishonen <git@bshn.rs>"]
+version = "0.6.2"
+authors = ["Sunli <scott_s829@163.com>", "Nikita Bishonen <git@bshn.rs>", "Jonathan Gautheron <gautheronjonathan@gmail.com>"]
 edition = "2021"
 description = "GraphGate is Apollo Federation implemented in Rust"
 license = "MIT/Apache-2.0"
