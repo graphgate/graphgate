@@ -30,6 +30,23 @@ use value::{ConstValue, Name};
 
 use crate::{type_ext::TypeExt, CombineError};
 
+/// Common scalar types that are allowed to be defined in multiple subgraphs without conflicts.
+///
+/// In GraphQL Federation v2, these scalar types are considered standard and can be shared
+/// across subgraphs without requiring the `@shareable` directive. This is because they have
+/// well-defined semantics and serialization formats that are expected to be consistent
+/// across all implementations.
+///
+/// Including:
+/// - `DateTime`: ISO-8601 encoded date-time string
+/// - `Date`: ISO-8601 encoded date string
+/// - `Time`: ISO-8601 encoded time string
+/// - `JSON`: Arbitrary JSON value
+/// - `UUID`: Universally unique identifier string
+/// - `Email`: Email address string
+/// - `URL`: URL string
+const COMMON_SCALAR_TYPES: [&str; 7] = ["DateTime", "Date", "Time", "JSON", "UUID", "Email", "URL"];
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum Deprecation {
     NoDeprecated,
@@ -249,16 +266,18 @@ impl ComposedSchema {
         let mut original_type_definitions = HashMap::new();
 
         for (service, doc) in federation_sdl {
-            for definition in doc.definitions.clone() {
+            // First pass: store original type definitions for validation
+            for definition in &doc.definitions {
                 if let TypeSystemDefinition::Type(type_definition) = definition {
                     let type_name = type_definition.node.name.node.to_string();
                     original_type_definitions
                         .entry(type_name)
                         .or_insert_with(HashMap::new)
-                        .insert(service.clone(), type_definition);
+                        .insert(service.clone(), type_definition.clone());
                 }
             }
 
+            // Second pass: process definitions
             for definition in doc.definitions {
                 match definition {
                     TypeSystemDefinition::Type(type_definition) => {
@@ -456,7 +475,10 @@ impl ComposedSchema {
                                         .unwrap_or(false);
 
                                     // Check for incompatible field arguments
-                                    let existing_field = meta_type.fields.get(&field.node.name.node).unwrap();
+                                    let existing_field = meta_type
+                                        .fields
+                                        .get(&field.node.name.node)
+                                        .expect("Field should exist as we just checked with contains_key");
                                     let new_field = convert_field_definition(field.node.clone());
 
                                     // If the field has arguments, check that they are compatible
@@ -575,9 +597,6 @@ impl ComposedSchema {
                                     // or be part of an entity key to be shared across services
                                     if !type_is_shareable && !is_field_shareable && !is_field_entity_key {
                                         // Check if the field has the same type in both services
-                                        let existing_field = meta_type.fields.get(&field.node.name.node).unwrap();
-                                        let new_field = convert_field_definition(field.node.clone());
-
                                         if existing_field.ty != new_field.ty {
                                             // If the field types are different, provide a more specific error
                                             return Err(CombineError::FieldTypeConflicted {
@@ -595,6 +614,8 @@ impl ComposedSchema {
                                         }
                                     }
                                 }
+
+                                // Convert the field definition and add it to the meta_type
                                 let mut meta_field = convert_field_definition(field.node);
                                 if is_extend {
                                     meta_field.service = Some(service.clone());
@@ -616,9 +637,7 @@ impl ComposedSchema {
                                 let both_are_scalars =
                                     meta_type.kind == TypeKind::Scalar && meta_type2.kind == TypeKind::Scalar;
 
-                                let common_scalar_types = ["DateTime", "Date", "Time", "JSON", "UUID", "Email", "URL"];
-
-                                let is_common_scalar = common_scalar_types.contains(&meta_type.name.as_str());
+                                let is_common_scalar = COMMON_SCALAR_TYPES.contains(&meta_type.name.as_str());
 
                                 // Allow common scalar types to be defined in multiple subgraphs
                                 if both_are_scalars && is_common_scalar {
