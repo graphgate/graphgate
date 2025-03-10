@@ -1,0 +1,163 @@
+name: "Mixed Federation Versions Test"
+description: "Tests a query that spans both Federation v1 and v2 services"
+
+schema:
+  # Federation v1 service
+  users: |
+    type User @key(fields: "id") {
+      id: ID!
+      name: String!
+      email: String!
+      profile: Profile! @external @shareable
+      reviews: [Review!]! @shareable
+    }
+
+    type Profile @key(fields: "userId") {
+      userId: ID!
+      user: User! @provides(fields: "id") @shareable
+    }
+
+    type Review @key(fields: "id") {
+      id: ID!
+      text: String! @shareable
+      rating: Int! @shareable
+      author: User! @provides(fields: "id") @shareable
+    }
+
+    type Query {
+      me: User! @resolve(service: "users")
+      user(id: ID!): User @resolve(service: "users")
+      users: [User!]! @resolve(service: "users")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @provides(fields: String!) on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+    directive @shareable on FIELD_DEFINITION
+
+  # Federation v2 service
+  profiles: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@external",
+          "@provides",
+          "@requires"
+        ]
+      )
+
+    type Profile @key(fields: "userId") {
+      userId: ID!
+      bio: String
+      avatar: String
+      socialLinks: [String!]
+      user: User! @shareable @resolve(service: "profiles")
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      profile: Profile! @shareable @resolve(service: "profiles")
+    }
+
+    type Query {
+      profile(userId: ID!): Profile @resolve(service: "profiles")
+      profiles: [Profile!]! @resolve(service: "profiles")
+    }
+
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  # Federation v2 service
+  reviews: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@external",
+          "@provides",
+          "@requires"
+        ]
+      )
+
+    type Review @key(fields: "id") {
+      id: ID!
+      text: String! @shareable
+      rating: Int! @shareable
+      author: User! @shareable @resolve(service: "reviews")
+      product: Product! @resolve(service: "reviews")
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      reviews: [Review!]! @shareable @resolve(service: "reviews")
+    }
+
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String!
+      reviews: [Review!]! @resolve(service: "reviews")
+    }
+
+    type Query {
+      review(id: ID!): Review @resolve(service: "reviews")
+      reviews: [Review!]! @resolve(service: "reviews")
+      products: [Product!]! @resolve(service: "reviews")
+    }
+
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    users {
+      id
+      name
+      profile {
+        bio
+        avatar
+        socialLinks
+      }
+      reviews {
+        id
+        text
+        rating
+        product {
+          id
+          name
+        }
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "users"
+      query: "query\n{ users { id name profile { bio avatar socialLinks } } }"
+    - type: "flatten"
+      service: "reviews"
+      path: "[users]"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on User { reviews { id text rating product { id name } } } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "users"
+  - assertion_type: "contains_service"
+    value: "reviews"
+  - assertion_type: "path_exists"
+    path: "users.profile"
+    value: true
+  - assertion_type: "path_exists"
+    path: "users.reviews.product"
+    value: true

@@ -1,0 +1,71 @@
+name: "Invalid Provides Fields Test"
+description: |
+  Tests that the planner correctly handles @provides directive with non-existent fields.
+
+  EXPECTED BEHAVIOR:
+  When a @provides directive references fields that don't exist, the planner should ignore
+  the fields that can't be provided, resulting in a plan that only uses the products service.
+
+schema:
+  users: |
+    type User @key(fields: "id") {
+      id: ID!
+      name: String!
+      email: String!
+      # Note: profile field doesn't exist here
+    }
+
+    type Query {
+      user(id: ID!): User
+    }
+
+    directive @key(fields: String!) on OBJECT
+  products: |
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String!
+      creator: User! @provides(fields: "id nonExistentField profile { bio }")
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+    }
+
+    type Query {
+      product(id: ID!): Product
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @provides(fields: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    product(id: "1") {
+      id
+      name
+      creator {
+        id
+        name
+        email
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products"
+      query: 'query { product(id: "1") { id name creator { id } } }'
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "products"
+
+# Print the actual plan for debugging
+determinism_checks:
+  test_service_order: true

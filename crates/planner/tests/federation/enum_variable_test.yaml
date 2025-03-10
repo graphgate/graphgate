@@ -1,0 +1,57 @@
+name: "Enum Variable Test"
+description: "Tests that enum variables are correctly passed to the underlying services"
+
+schema:
+  accounts: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    enum UserSortOrder {
+      CREATED_AT
+      USERNAME
+      EMAIL
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      username: String!
+      email: String!
+      createdAt: String!
+    }
+
+    type Query {
+      users(sortOrder: UserSortOrder!): [User!]! @resolve(service: "accounts")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  query($sortOrder: UserSortOrder!){
+    users(sortOrder: $sortOrder) {
+      id
+      username
+    }
+  }
+
+variables: { "sortOrder": "CREATED_AT" }
+
+expected_plan:
+  type: "fetch"
+  service: "accounts"
+  variables: { "sortOrder": "CREATED_AT" }
+  query: "query($sortOrder: UserSortOrder!)\n{ users(sortOrder: $sortOrder) { id username } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "accounts"
+  - assertion_type: "path_exists"
+    path: "users"
+    value: true

@@ -1,0 +1,115 @@
+name: "Requires Nested Test"
+description: |
+  Tests that nested @requires fields are handled correctly.
+
+  This test verifies that when one field with @requires depends on another field that also has @requires,
+  the planner correctly orchestrates the data fetching in the right order.
+
+schema:
+  users_nested: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type UserNested @key(fields: "id") {
+      id: ID!
+      name: String!
+      country: String! @shareable
+    }
+
+    type Query {
+      userNested(id: ID!): UserNested @resolve(service: "users_nested")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products_nested: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@external",
+          "@requires"
+        ]
+      )
+
+    type ProductNested @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Float!
+      # This field requires the user's country
+      taxRate(userId: ID!): Float! @requires(fields: "userNested(userId: $userId) { country }")
+      # This field requires the taxRate field
+      totalPrice(userId: ID!): Float! @requires(fields: "taxRate(userId: $userId)")
+      userNested(userId: ID!): UserNested
+    }
+
+    type UserNested @key(fields: "id") {
+      id: ID!
+      country: String! @external
+    }
+
+    type Query {
+      topProductsNested: [ProductNested!]! @resolve(service: "products_nested")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    topProductsNested {
+      id
+      name
+      price
+      taxRate(userId: "user1")
+      totalPrice(userId: "user1")
+      userNested(userId: "user1") {
+        id
+        name
+        country
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products_nested"
+      query: "query\n{ topProductsNested { id name price userNested(userId: \"user1\") { id __key1___typename:__typename __key1_id:id } } }"
+    - type: "flatten"
+      service: "users_nested"
+      path: "topProductsNested.[userNested]"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on UserNested { name country } } }"
+    - type: "flatten"
+      service: "products_nested"
+      path: "topProductsNested"
+      prefix: 1
+      query: "query\n{ topProductsNested { taxRate(userId: \"user1\") } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "users_nested"
+  - assertion_type: "contains_service"
+    value: "products_nested"
+  - assertion_type: "path_exists"
+    path: "topProductsNested.taxRate"
+    value: true
+  - assertion_type: "node_count"
+    value: 3

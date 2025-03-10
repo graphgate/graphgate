@@ -1,0 +1,135 @@
+name: "Possible Union Test"
+description: "Tests that queries with union types are correctly handled across multiple services"
+
+schema:
+  accounts: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+    }
+
+    type Query {
+      me: User @resolve(service: "accounts")
+      _dummy_accounts: String
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  reviews: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      reviews: [Review!]!
+    }
+
+    type Review {
+      id: ID!
+      body: String!
+      attachment: Attachment
+    }
+
+    union Attachment = Text | Image | Audio
+
+    type Text @key(fields: "id") {
+      id: ID!
+      content: String!
+    }
+
+    type Image @key(fields: "id") {
+      id: ID!
+    }
+
+    type Audio @key(fields: "id") {
+      id: ID!
+    }
+
+    type Query {
+      _dummy_reviews: String
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  attachments: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    type Image @key(fields: "id") {
+      id: ID!
+      width: Int!
+      height: Int!
+      data: String!
+    }
+
+    type Audio @key(fields: "id") {
+      id: ID!
+      duration: Int!
+      data: String!
+    }
+
+    type Query {
+      _dummy_attachments: String
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    me {
+      reviews {
+        body
+        attachment {
+          __typename
+          ... on Image {
+            width
+            height
+            data
+          }
+          ... on Audio {
+            duration
+            data
+          }
+          ... on Text {
+            content
+          }
+        }
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "fetch"
+  service: "accounts"
+  query: "query\n{ me { reviews { body attachment { ... on Text { __typename content } ... on Image { __typename width height data } ... on Audio { __typename duration data } } } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "accounts"
+  - assertion_type: "path_exists"
+    path: "me.reviews.attachment"
+    value: true

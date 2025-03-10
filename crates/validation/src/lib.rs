@@ -43,9 +43,13 @@ pub fn check_rules(
         NoUnusedFragments,
         OverlappingFieldsCanBeMerged,
         PossibleFragmentSpreads,
+        ProvidesDirectiveFields,
         ProvidedNonNullArguments,
         ScalarLeafs,
+        SingleFieldSubscriptions,
         UniqueArgumentNames,
+        UniqueDirectivesPerLocation,
+        UniqueInputFieldNames,
         UniqueVariableNames,
         VariablesAreInputTypes,
         VariableInAllowedPosition

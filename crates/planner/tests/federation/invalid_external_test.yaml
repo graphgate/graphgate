@@ -1,0 +1,61 @@
+name: "Invalid External Field Test"
+description: |
+  Tests that the planner correctly handles invalid @external directive usage.
+
+schema:
+  users: |
+    type User @key(fields: "id") {
+      id: ID!
+      name: String!
+      email: String!
+    }
+
+    type Query {
+      user(id: ID!): User
+    }
+
+    directive @key(fields: String!) on OBJECT
+  orders: |
+    type User @key(fields: "id") {
+      id: ID!
+      nonExistentField: String! @external
+      orderCount: Int! @requires(fields: "nonExistentField")
+    }
+
+    type Query {
+      orders: [Order!]!
+    }
+
+    type Order {
+      id: ID!
+      userId: ID!
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    user(id: "1") {
+      id
+      name
+      email
+      orderCount
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "users"
+      query: 'query { user(id: "1") { id name email } }'
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "users"

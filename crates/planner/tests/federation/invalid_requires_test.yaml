@@ -1,0 +1,69 @@
+name: "Invalid Requires Fields Test"
+description: |
+  Tests that the planner correctly handles @requires directive with fields that can't be resolved.
+
+schema:
+  users: |
+    type User @key(fields: "id") {
+      id: ID!
+      name: String!
+      # Note: preferences field doesn't exist here
+    }
+
+    type Query {
+      user(id: ID!): User
+    }
+
+    directive @key(fields: String!) on OBJECT
+  recommendations: |
+    type User @key(fields: "id") {
+      id: ID!
+      preferences: UserPreferences @external
+      recommendedProducts: [Product!]! @requires(fields: "preferences { favoriteCategories }")
+    }
+
+    type UserPreferences {
+      favoriteCategories: [String!]!
+    }
+
+    type Product {
+      id: ID!
+      name: String!
+      category: String!
+    }
+
+    type Query {
+      recommendedProducts(userId: ID!): [Product!]!
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    user(id: "1") {
+      id
+      name
+      recommendedProducts {
+        id
+        name
+        category
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "users"
+      query: 'query { user(id: "1") { id name } }'
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "users"

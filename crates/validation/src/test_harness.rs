@@ -1,6 +1,7 @@
 use graphgate_schema::ComposedSchema;
 use once_cell::sync::Lazy;
 use parser::types::ExecutableDocument;
+use tracing::debug;
 use value::Variables;
 
 use crate::{
@@ -40,7 +41,7 @@ where
             if let Some(position) = err.locations.first() {
                 print!("[{}:{}] ", position.line, position.column);
             }
-            println!("{}", err.message);
+            debug!("{}", err.message);
         }
         panic!("Expected rule to pass, but errors found");
     }
