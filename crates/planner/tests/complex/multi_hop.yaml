@@ -1,0 +1,151 @@
+name: "Multi-Hop Federation Test"
+description: "Tests a query that requires traversing through multiple services in a chain (Service A → Service B → Service C)"
+
+schema:
+  users: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@provides"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      email: String! @shareable
+      orders: [Order!]! @shareable @provides(fields: "id customer { id }")
+    }
+
+    type Query {
+      me: User! @resolve(service: "users")
+      user(id: ID!): User @resolve(service: "users")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @provides(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  orders: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@provides"
+        ]
+      )
+
+    type Order @key(fields: "id") {
+      id: ID!
+      orderNumber: String!
+      customer: User! @provides(fields: "id")
+      items: [OrderItem!]! @shareable @provides(fields: "id product { id }")
+      totalAmount: Float!
+      status: String!
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      orders: [Order!]! @shareable @resolve(service: "orders")
+    }
+
+    type Query {
+      order(id: ID!): Order @resolve(service: "orders")
+      orders: [Order!]! @resolve(service: "orders")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @provides(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String!
+      description: String
+      price: Float!
+      inStock: Boolean!
+    }
+
+    type OrderItem @key(fields: "id") {
+      id: ID!
+      product: Product! @resolve(service: "products")
+      quantity: Int!
+      price: Float!
+    }
+
+    type Order @key(fields: "id") {
+      id: ID!
+      items: [OrderItem!]! @shareable @resolve(service: "products")
+    }
+
+    type Query {
+      product(id: ID!): Product @resolve(service: "products")
+      products: [Product!]! @resolve(service: "products")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    me {
+      id
+      name
+      orders {
+        id
+        orderNumber
+        items {
+          id
+          quantity
+          product {
+            id
+            name
+            price
+            inStock
+          }
+        }
+        totalAmount
+        status
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "users"
+      query: "query\n{ me { id name orders { id orderNumber items { id quantity } totalAmount status } } }"
+    - type: "flatten"
+      service: "products"
+      path: "me.[orders].[items]"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on OrderItem { product { id name price inStock } } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "users"
+  - assertion_type: "contains_service"
+    value: "products"
+  - assertion_type: "path_exists"
+    path: "me.orders.items.product"
+    value: true

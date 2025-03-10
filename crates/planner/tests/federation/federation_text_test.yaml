@@ -1,0 +1,84 @@
+name: "Federation Text Test"
+description: "Tests a query for collectibles with their collections"
+
+schema:
+  Collectibles: |
+    type Collectible @key(fields: "id") {
+      id: ID!
+      name: String!
+      collection: Collection!
+    }
+
+    type Collection @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      floorPrice: Int! @shareable
+    }
+
+    type Query {
+      collectiblesAll: [Collectible!]!
+    }
+
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+    directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+    directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+
+  Collections: |
+    type Collection @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      floorPrice: Int! @shareable
+    }
+
+    type Query {
+      collectionsAll: [Collection!]!
+    }
+
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+    directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+    directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+
+query: |
+  query CollectiblesAll {
+    collectiblesAll {
+      __typename
+      id
+      name
+      collection {
+        __typename
+        id
+        name
+        floorPrice
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "fetch"
+  service: "Collectibles"
+  query: "query\n{ collectiblesAll { __typename id name collection { __typename id name floorPrice } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "Collectibles"
+  - assertion_type: "path_exists"
+    path: "collectiblesAll.collection"
+    value: true

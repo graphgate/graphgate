@@ -1,0 +1,125 @@
+name: "Provides Directive Test"
+description: "Tests that the @provides directive correctly optimizes queries by avoiding unnecessary service calls"
+
+schema:
+  products: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@provides",
+          "@shareable"
+        ]
+      )
+
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Int!
+      reviews: [Review!]! @provides(fields: "id author { id name }")
+    }
+
+    type Review @key(fields: "id") {
+      id: ID!
+      text: String! @shareable
+      rating: Int! @shareable
+      author: User! @shareable
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      email: String! @shareable
+    }
+
+    type Query {
+      products: [Product!]! @resolve(service: "products")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @provides(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  reviews: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type Review @key(fields: "id") {
+      id: ID!
+      text: String! @shareable
+      rating: Int! @shareable
+      author: User! @shareable
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+    }
+
+    type Query {
+      reviews: [Review!]! @resolve(service: "reviews")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  users: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      email: String! @shareable
+    }
+
+    type Query {
+      users: [User!]! @resolve(service: "users")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    products {
+      id
+      name
+      reviews {
+        id
+        author {
+          id
+          name
+        }
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "fetch"
+  service: "products"
+  query: "query\n{ products { id name reviews { id author { id name } } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "products"
+  - assertion_type: "path_exists"
+    path: "products.reviews.author"
+    value: true

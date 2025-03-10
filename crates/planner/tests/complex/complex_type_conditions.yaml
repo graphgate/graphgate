@@ -1,0 +1,162 @@
+name: "Complex Type Conditions Test"
+description: "Tests a query with complex type conditions involving unions and interfaces across multiple services"
+
+schema:
+  search: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    union SearchResult = Product | Article | User
+
+    type Query {
+      search(term: String!): [SearchResult!]! @resolve(service: "search")
+    }
+
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      price: Float! @shareable
+      category: String! @shareable
+    }
+
+    type Article @key(fields: "id") {
+      id: ID!
+      title: String! @shareable
+      content: String! @shareable
+      author: User! @shareable
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      price: Float! @shareable
+      category: String! @shareable
+      description: String
+      inStock: Boolean!
+    }
+
+    type Query {
+      product(id: ID!): Product @resolve(service: "products")
+      products: [Product!]! @resolve(service: "products")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  content: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type Article @key(fields: "id") {
+      id: ID!
+      title: String! @shareable
+      content: String! @shareable
+      author: User! @shareable @resolve(service: "content")
+      relatedArticles: [Article!]! @resolve(service: "content")
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      articles: [Article!]! @resolve(service: "content")
+    }
+
+    type Query {
+      article(id: ID!): Article @resolve(service: "content")
+      articles: [Article!]! @resolve(service: "content")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    search(term: "test") {
+      __typename
+      ... on Product {
+        id
+        name
+        price
+        category
+        ... @include(if: true) {
+          inStock
+          description
+        }
+      }
+      ... on Article {
+        id
+        title
+        content
+        author {
+          id
+          name
+          articles {
+            id
+            title
+          }
+        }
+      }
+      ... on User {
+        id
+        name
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "search"
+      query: "query\n{ search(term: \"test\") { ... on Product { __typename id name price category inStock description } ... on Article { __typename id title content author { id name __key1___typename:__typename __key1_id:id } } ... on User { __typename id name } } }"
+    - type: "flatten"
+      service: "content"
+      path: "[search](Article).author"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on User { articles { id title } } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "search"
+  - assertion_type: "contains_service"
+    value: "content"
+  - assertion_type: "path_exists"
+    path: "search.inStock"
+    value: true
+  - assertion_type: "path_exists"
+    path: "search.author.articles"
+    value: true

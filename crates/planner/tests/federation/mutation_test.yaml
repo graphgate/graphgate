@@ -1,0 +1,98 @@
+name: "Mutation Test"
+description: "Tests that mutations across multiple services are correctly handled"
+
+schema:
+  accounts: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      username: String!
+    }
+
+    type Mutation {
+      createUser(username: String!): User! @resolve(service: "accounts")
+    }
+
+    type Query {
+      _dummy_accounts: String
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  reviews: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    type Review @key(fields: "id") {
+      id: ID!
+      body: String!
+    }
+
+    type Mutation {
+      createReview(body: String!): Review! @resolve(service: "reviews")
+    }
+
+    type Query {
+      _dummy_reviews: String
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  mutation {
+    u1: createUser(username: "u1") {
+      id
+      username
+    }
+    u2: createUser(username: "u2") {
+      id
+      username
+    }
+    review1: createReview(body: "hehe") {
+      body
+    }
+    review2: createReview(body: "haha") {
+      body
+    }
+    u3: createUser(username: "u3") {
+      id
+      username
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "accounts"
+      query: "mutation\n{ u1:createUser(username: \"u1\") { id username } u2:createUser(username: \"u2\") { id username } }"
+    - type: "fetch"
+      service: "reviews"
+      query: "mutation\n{ review1:createReview(body: \"hehe\") { body } review2:createReview(body: \"haha\") { body } }"
+    - type: "fetch"
+      service: "accounts"
+      query: "mutation\n{ u3:createUser(username: \"u3\") { id username } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "accounts"
+  - assertion_type: "contains_service"
+    value: "reviews"

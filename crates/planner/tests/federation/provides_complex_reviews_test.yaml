@@ -1,0 +1,183 @@
+name: "Complex Provides Directive Test - Direct Reviews Query"
+description: "Tests that the @provides directive is NOT used when querying fields not provided"
+
+schema:
+  products: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@provides",
+          "@shareable"
+        ]
+      )
+
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Int!
+      # This field provides not only the review ID but also the author's ID, name, and even their profile details
+      reviews: [Review!]!
+        @provides(fields: "id author { id name profile { bio avatarUrl } }")
+      # This field provides the category's ID, name, and parent category details
+      category: Category @provides(fields: "id name parent { id name }")
+    }
+
+    type Review @key(fields: "id") {
+      id: ID!
+      text: String! @shareable
+      rating: Int! @shareable
+      author: User! @shareable
+      product: Product! @shareable
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      email: String! @shareable
+      profile: UserProfile @shareable
+    }
+
+    type UserProfile {
+      bio: String @shareable
+      avatarUrl: String @shareable
+      socialLinks: [String!] @shareable
+    }
+
+    type Category @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      parent: Category @shareable
+      products: [Product!]! @shareable
+    }
+
+    type Query {
+      products: [Product!]! @resolve(service: "products")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @provides(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  reviews: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type Review @key(fields: "id") {
+      id: ID!
+      text: String! @shareable
+      rating: Int! @shareable
+      author: User! @shareable
+      product: Product! @shareable
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+    }
+
+    type Product @key(fields: "id") {
+      id: ID!
+    }
+
+    type Query {
+      reviews: [Review!]! @resolve(service: "reviews")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  users: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      email: String! @shareable
+      profile: UserProfile @shareable
+    }
+
+    type UserProfile {
+      bio: String @shareable
+      avatarUrl: String @shareable
+      socialLinks: [String!] @shareable
+    }
+
+    type Query {
+      users: [User!]! @resolve(service: "users")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  categories: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type Category @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      parent: Category @shareable
+      products: [Product!]! @shareable
+    }
+
+    type Product @key(fields: "id") {
+      id: ID!
+    }
+
+    type Query {
+      categories: [Category!]! @resolve(service: "categories")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    reviews {
+      id
+      text
+      rating
+      author {
+        id
+        name
+        email
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "fetch"
+  service: "reviews"
+  query: "query\n{ reviews { id text rating author { id name email } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "reviews"
+  - assertion_type: "path_exists"
+    path: "reviews.author.email"
+    value: true

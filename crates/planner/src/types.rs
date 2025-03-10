@@ -209,7 +209,9 @@ impl<'a> RootGroup<'a> for QueryRootGroup<'a> {
     }
 
     fn into_selection_set(self) -> Vec<(&'a str, SelectionRefSet<'a>)> {
-        self.0.into_iter().collect()
+        let mut services: Vec<(&'a str, SelectionRefSet<'a>)> = self.0.into_iter().collect();
+        services.sort_by(|(a, _), (b, _)| a.cmp(b));
+        services
     }
 }
 
@@ -218,13 +220,8 @@ pub struct MutationRootGroup<'a>(Vec<(&'a str, SelectionRefSet<'a>)>);
 
 impl<'a> RootGroup<'a> for MutationRootGroup<'a> {
     fn selection_set_mut(&mut self, service: &'a str) -> &mut SelectionRefSet<'a> {
-        if self
-            .0
-            .last()
-            .filter(|(last_service, _)| *last_service == service)
-            .is_some()
-        {
-            return &mut self.0.last_mut().unwrap().1;
+        if let Some(idx) = self.0.iter().position(|(s, _)| *s == service) {
+            return &mut self.0[idx].1;
         }
         self.0.push((service, Default::default()));
         let last = self.0.last_mut().unwrap();

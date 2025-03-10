@@ -1,0 +1,110 @@
+name: "Shareable Fields Test"
+description: "Tests that shareable fields are correctly handled across multiple services"
+
+schema:
+  accounts: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      username: String!
+      timestamp: Timestamp! @shareable
+    }
+
+    type Timestamp {
+      createdAt: String! @shareable
+      updatedAt: String! @shareable
+      deletedAt: String @shareable
+    }
+
+    type Query {
+      user(id: ID!): User
+      _dummy_accounts: String
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+
+  reviews: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type Review {
+      id: ID!
+      body: String!
+      author: User!
+      timestamp: Timestamp! @shareable
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+    }
+
+    type Timestamp {
+      createdAt: String! @shareable
+      updatedAt: String! @shareable
+      deletedAt: String @shareable
+    }
+
+    type Query {
+      reviews(productId: ID!, limit: Int): [Review!]!
+      _dummy_reviews: String
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+
+query: |
+  {
+    u1: user(id: "1234") {
+      id username timestamp { createdAt updatedAt deletedAt }
+    }
+    r1: reviews(productId: "4567", limit: 10) {
+      body
+      author { id username }
+      timestamp { createdAt updatedAt deletedAt }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "parallel"
+      nodes:
+        - type: "fetch"
+          service: "accounts"
+          query: "query\n{ u1:user(id: \"1234\") { id username timestamp { createdAt updatedAt deletedAt } } }"
+        - type: "fetch"
+          service: "reviews"
+          query: "query\n{ r1:reviews(productId: \"4567\", limit: 10) { body author { id __key1___typename:__typename __key1_id:id } timestamp { createdAt updatedAt deletedAt } } }"
+    - type: "flatten"
+      service: "accounts"
+      path: "[r1].author"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on User { username } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "accounts"
+  - assertion_type: "contains_service"
+    value: "reviews"
+  - assertion_type: "path_exists"
+    path: "r1.author.username"
+    value: true

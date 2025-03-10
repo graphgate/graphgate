@@ -1,0 +1,146 @@
+name: "Requires Circular Test"
+description: |
+  Tests that the @requires directive correctly handles potential circular references.
+
+  This test verifies that when there are potential circular dependencies between services,
+  the planner correctly resolves them without entering an infinite loop.
+
+schema:
+  users_circ: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@external",
+          "@requires"
+        ]
+      )
+
+    type UserCirc @key(fields: "id") {
+      id: ID!
+      name: String!
+      country: String! @shareable
+      # This field requires product data
+      productRecommendation: ProductCirc @requires(fields: "favoriteProductId")
+      favoriteProductId: ID! @external
+    }
+
+    type ProductCirc @key(fields: "id") {
+      id: ID!
+      name: String! @external
+      category: String! @external
+    }
+
+    type Query {
+      userCirc(id: ID!): UserCirc @resolve(service: "users_circ")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products_circ: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@external",
+          "@requires"
+        ]
+      )
+
+    type ProductCirc @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Float!
+      category: String!
+      # This field requires user data
+      userDiscount(userId: ID!): Float! @requires(fields: "userCirc(userId: $userId) { country }")
+      userCirc(userId: ID!): UserCirc
+    }
+
+    type UserCirc @key(fields: "id") {
+      id: ID!
+      country: String! @external
+      favoriteProductId: ID! @shareable
+    }
+
+    type Query {
+      productCirc(id: ID!): ProductCirc @resolve(service: "products_circ")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  query GetUserWithRecommendation($userId: ID!) {
+    userCirc(id: $userId) {
+      id
+      name
+      country
+      favoriteProductId
+      productRecommendation {
+        id
+        name
+        category
+        userDiscount(userId: $userId)
+      }
+    }
+  }
+
+variables: { "userId": "user1" }
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "users_circ"
+      query: "query GetUserWithRecommendation($userId: ID!)\n{ userCirc(id: $userId) { id name country favoriteProductId } }"
+      variables: { "userId": "user1" }
+    - type: "flatten"
+      service: "products_circ"
+      path: "userCirc"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on UserCirc { favoriteProductId } } }"
+    - type: "flatten"
+      service: "products_circ"
+      path: "userCirc"
+      prefix: 1
+      query: "query GetUserWithRecommendation($userId: ID!)\n{ productCirc(id: \"${userCirc.favoriteProductId}\") { id name category } }"
+      variables: { "userId": "user1" }
+    - type: "flatten"
+      service: "users_circ"
+      path: "userCirc.productRecommendation"
+      prefix: 1
+      query: "query GetUserWithRecommendation($userId: ID!)\n{ userCirc(id: $userId) { productRecommendation { id __key1___typename:__typename __key1_id:id } } }"
+      variables: { "userId": "user1" }
+    - type: "flatten"
+      service: "products_circ"
+      path: "userCirc.productRecommendation"
+      prefix: 1
+      query: "query GetUserWithRecommendation($userId: ID!)\n{ productCirc(id: \"${userCirc.productRecommendation.id}\") { userDiscount(userId: $userId) } }"
+      variables: { "userId": "user1" }
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "users_circ"
+  - assertion_type: "contains_service"
+    value: "products_circ"
+  - assertion_type: "path_exists"
+    path: "userCirc.productRecommendation.userDiscount"
+    value: true
+  - assertion_type: "node_count"
+    value: 5
+  - assertion_type: "max_depth"
+    value: 3
