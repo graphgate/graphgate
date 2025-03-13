@@ -11,6 +11,7 @@ use serde::{
     Serialize,
     Serializer,
 };
+use std::collections::BTreeMap;
 use value::{ConstValue, Name, Value, Variables};
 
 use crate::plan::ResponsePath;
@@ -220,7 +221,7 @@ pub trait RootGroup<'a> {
 }
 
 #[derive(Default)]
-pub struct QueryRootGroup<'a>(IndexMap<&'a str, SelectionRefSet<'a>>);
+pub struct QueryRootGroup<'a>(BTreeMap<&'a str, SelectionRefSet<'a>>);
 
 impl<'a> RootGroup<'a> for QueryRootGroup<'a> {
     fn selection_set_mut(&mut self, service: &'a str) -> &mut SelectionRefSet<'a> {
@@ -228,9 +229,7 @@ impl<'a> RootGroup<'a> for QueryRootGroup<'a> {
     }
 
     fn into_selection_set(self) -> Vec<(&'a str, SelectionRefSet<'a>)> {
-        let mut services: Vec<(&'a str, SelectionRefSet<'a>)> = self.0.into_iter().collect();
-        services.sort_by(|(a, _), (b, _)| a.cmp(b));
-        services
+        self.0.into_iter().collect()
     }
 }
 
