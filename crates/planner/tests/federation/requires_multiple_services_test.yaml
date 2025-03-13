@@ -1,0 +1,165 @@
+name: "Requires Multiple Services Test"
+description: |
+  Tests that the @requires directive can handle fields that require data from multiple services.
+
+  This test verifies that when a field requires data from multiple different services,
+  the planner correctly orchestrates fetching all the required data before resolving the field.
+
+schema:
+  users_ms: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type UserMS @key(fields: "id") {
+      id: ID!
+      name: String!
+      country: String! @shareable
+      tier: String! @shareable
+    }
+
+    type Query {
+      userMS(id: ID!): UserMS @resolve(service: "users_ms")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  inventory_ms: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type WarehouseMS {
+      id: String!
+      name: String!
+      location: String!
+    }
+
+    type ProductMS @key(fields: "id") {
+      id: ID!
+      inStock: Boolean!
+      restockDate: String
+      warehouseInfo: WarehouseMS! @shareable
+    }
+
+    type Query {
+      productMS(id: ID!): ProductMS @resolve(service: "inventory_ms")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products_ms: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@external",
+          "@requires"
+        ]
+      )
+
+    type WarehouseMS @external {
+      id: String!
+      name: String!
+      location: String!
+    }
+
+    type ProductMS @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Float!
+      # This field requires data from both users and inventory services
+      finalPrice(userId: ID!): Float! @requires(fields: "userMS(userId: $userId) { country tier } warehouseInfo { id location }")
+      warehouseInfo: WarehouseMS! @external
+      userMS(userId: ID!): UserMS
+    }
+
+    type UserMS @key(fields: "id") {
+      id: ID!
+      country: String! @external
+      tier: String! @external
+    }
+
+    type Query {
+      topProductsMS: [ProductMS!]! @resolve(service: "products_ms")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    topProductsMS {
+      id
+      name
+      price
+      finalPrice(userId: "user1")
+      warehouseInfo {
+        id
+        name
+        location
+      }
+      userMS(userId: "user1") {
+        id
+        name
+        country
+        tier
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products_ms"
+      query: "query\n{ topProductsMS { id name price userMS(userId: \"user1\") { id __key1___typename:__typename __key1_id:id } } }"
+    - type: "flatten"
+      service: "users_ms"
+      path: "topProductsMS.[userMS]"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on UserMS { name country tier } } }"
+    - type: "flatten"
+      service: "inventory_ms"
+      path: "topProductsMS"
+      prefix: 2
+      query: "query\n{ productMS(id: \"${topProductsMS.id}\") { warehouseInfo { id name location } } }"
+    - type: "flatten"
+      service: "products_ms"
+      path: "topProductsMS"
+      prefix: 3
+      query: "query\n{ topProductsMS { __key3_id:id finalPrice(userId: \"user1\") } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 3
+  - assertion_type: "contains_service"
+    value: "users_ms"
+  - assertion_type: "contains_service"
+    value: "inventory_ms"
+  - assertion_type: "contains_service"
+    value: "products_ms"
+  - assertion_type: "path_exists"
+    path: "topProductsMS.finalPrice"
+    value: true
+  - assertion_type: "node_count"
+    value: 4

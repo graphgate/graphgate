@@ -1,0 +1,117 @@
+name: "Possible Interface Test"
+description: "Tests that queries with interface types are correctly handled across multiple services"
+
+schema:
+  products: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    interface Product {
+      upc: String!
+      name: String!
+      price: Int!
+    }
+
+    type Mouse implements Product @key(fields: "upc") {
+      upc: String!
+      name: String!
+      price: Int!
+      isWireless: Boolean!
+    }
+
+    type Book implements Product @key(fields: "upc") {
+      upc: String!
+      __typename: String!
+    }
+
+    type Car implements Product @key(fields: "upc") {
+      upc: String!
+      __typename: String!
+    }
+
+    type Query {
+      topProducts: [Product!]! @resolve(service: "products")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  books: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    type Book @key(fields: "upc") {
+      upc: String!
+      name: String!
+      price: Int!
+      isbn: String!
+      issuer: String!
+      publishDate: String!
+    }
+
+    type Query {
+      _dummy_books: String
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  cars: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    type Car @key(fields: "upc") {
+      upc: String!
+      name: String!
+      price: Int!
+      brand: String!
+      power: Int!
+      torque: Int!
+    }
+
+    type Query {
+      _dummy_cars: String
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    topProducts {
+      upc
+      name
+      price
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "fetch"
+  service: "products"
+  query: "query\n{ topProducts { ... on Car { upc name price } ... on Book { upc name price } ... on Mouse { upc name price } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "products"
+  - assertion_type: "path_exists"
+    path: "topProducts"
+    value: true

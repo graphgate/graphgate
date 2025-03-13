@@ -1,0 +1,148 @@
+name: "Requires Multi-Hop Test"
+description: |
+  Tests that the @requires directive correctly handles multi-hop dependencies across services.
+
+  This test verifies that when fields with @requires directives are requested in the query,
+  the planner correctly fetches the data from all required services.
+
+  Currently, the planner is optimizing away the fields with @requires directives,
+  which may indicate an issue with how the planner is handling these fields.
+
+  Expected behavior: The planner should fetch data from all three services.
+  Actual behavior: The planner is only fetching data from the users service.
+
+schema:
+  users: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String!
+      email: String!
+    }
+
+    type Query {
+      user(id: ID!): User
+    }
+
+  products: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@requires",
+          "@resolve"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      # This field requires the user ID and is explicitly defined in the products service
+      productRecommendations: [Product!]! @requires(fields: "id") @resolve(service: "products")
+    }
+
+    type Product {
+      id: ID!
+      name: String!
+      price: Float!
+    }
+
+    type Query {
+      products: [Product!]!
+    }
+
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  shipping: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@requires",
+          "@resolve"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      # This field requires the user ID and is explicitly defined in the shipping service
+      shippingOptions: [ShippingOption!]! @requires(fields: "id") @resolve(service: "shipping")
+    }
+
+    type ShippingOption {
+      id: ID!
+      name: String!
+      price: Float!
+      estimatedDelivery: String!
+    }
+
+    type Query {
+      shippingOptions: [ShippingOption!]!
+    }
+
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    user(id: "1") {
+      id
+      name
+      email
+      productRecommendations {
+        id
+        name
+        price
+      }
+      shippingOptions {
+        id
+        name
+        price
+        estimatedDelivery
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "users"
+      query: 'query\n{ user(id: "1") { id name email __key1___typename:__typename __key1_id:id productRecommendations { id name price } __key2___typename:__typename __key2_id:id shippingOptions { id name price estimatedDelivery } } }'
+    - type: "parallel"
+      nodes:
+        - type: "flatten"
+          service: "products"
+          path: "user.[productRecommendations]"
+          prefix: 1
+          query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on User { __key3___typename:__typename __key3_id:id productRecommendations { id name price } } } }"
+        - type: "flatten"
+          service: "shipping"
+          path: "user.[shippingOptions]"
+          prefix: 2
+          query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on User { __key4___typename:__typename __key4_id:id shippingOptions { id name price estimatedDelivery } } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 3
+  - assertion_type: "contains_service"
+    value: "users"
+  - assertion_type: "contains_service"
+    value: "products"
+  - assertion_type: "contains_service"
+    value: "shipping"
+  - assertion_type: "path_exists"
+    path: "user.productRecommendations"
+    value: true
+  - assertion_type: "path_exists"
+    path: "user.shippingOptions"
+    value: true

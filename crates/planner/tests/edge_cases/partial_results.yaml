@@ -1,0 +1,151 @@
+name: "Partial Results Test"
+description: "Tests a query where some parts might fail but others succeed"
+
+schema:
+  users: |
+    type User @key(fields: "id") {
+      id: ID!
+      name: String!
+      email: String!
+      preferences: UserPreferences!
+    }
+
+    type UserPreferences {
+      theme: String!
+      language: String!
+      notifications: Boolean!
+    }
+
+    type Query {
+      me: User! @resolve(service: "users")
+      user(id: ID!): User @resolve(service: "users")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products: |
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Float!
+      inStock: Boolean!
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      recentlyViewed: [Product!]! @resolve(service: "products")
+      cart: [Product!]! @resolve(service: "products")
+    }
+
+    type Query {
+      product(id: ID!): Product @resolve(service: "products")
+      products: [Product!]! @resolve(service: "products")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  recommendations: |
+    type Recommendation {
+      id: ID!
+      product: Product!
+      score: Float!
+      reason: String
+    }
+
+    type Product @key(fields: "id") {
+      id: ID!
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      recommendations: [Recommendation!]! @resolve(service: "recommendations")
+    }
+
+    type Query {
+      recommendation(id: ID!): Recommendation @resolve(service: "recommendations")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    me {
+      id
+      name
+      email
+      preferences {
+        theme
+        language
+        notifications
+      }
+      recentlyViewed {
+        id
+        name
+        price
+        inStock
+      }
+      cart {
+        id
+        name
+        price
+      }
+      recommendations {
+        id
+        product {
+          id
+          name
+          price
+        }
+        score
+        reason
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "users"
+      query: "query\n{ me { id name email preferences { theme language notifications } } }"
+    - type: "parallel"
+      nodes:
+        - type: "flatten"
+          service: "products"
+          path: "me"
+          prefix: 1
+          query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on User { recentlyViewed { id name price inStock } cart { id name price } } } }"
+        - type: "flatten"
+          service: "recommendations"
+          path: "me"
+          prefix: 2
+          query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on User { recommendations { id product { id } score reason } } } }"
+    - type: "flatten"
+      service: "products"
+      path: "me.recommendations.product"
+      prefix: 3
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on Product { name price } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 3
+  - assertion_type: "contains_service"
+    value: "users"
+  - assertion_type: "contains_service"
+    value: "products"
+  - assertion_type: "contains_service"
+    value: "recommendations"
+  - assertion_type: "path_exists"
+    path: "me.preferences"
+    value: true
+  - assertion_type: "path_exists"
+    path: "me.recentlyViewed"
+    value: true
+  - assertion_type: "path_exists"
+    path: "me.recommendations.product"
+    value: true

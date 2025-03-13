@@ -1,0 +1,82 @@
+name: "Determinism Test"
+description: "Tests that the planner produces deterministic plans regardless of service order, query structure, or variable order"
+
+schema:
+  Collectibles: |
+    type Collectible @key(fields: "id") {
+      id: ID!
+      name: String!
+      collection: Collection!
+    }
+
+    type Collection @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      floorPrice: Int! @shareable
+    }
+
+    type Query {
+      collectiblesAll: [Collectible!]!
+      collectible(id: ID!): Collectible
+    }
+
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+    directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+    directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+
+  Collections: |
+    type Collection @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      floorPrice: Int! @shareable
+    }
+
+    type Query {
+      collectionsAll: [Collection!]!
+      collection(id: ID!): Collection
+    }
+
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+    directive @include(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+    directive @skip(if: Boolean!) on FIELD | FRAGMENT_SPREAD | INLINE_FRAGMENT
+
+query: |
+  query GetCollectible($id: ID!) {
+    collectible(id: $id) {
+      id
+      name
+      collection {
+        id
+        name
+        floorPrice
+      }
+    }
+  }
+
+variables:
+  id: "123"
+
+expected_plan:
+  type: "fetch"
+  service: "Collectibles"
+  query: "query($id:ID!)\n{ collectible(id:$id) { id name collection { id name floorPrice } } }"
+
+determinism_checks:
+  test_service_order: true
+  test_query_structure: true
+  test_variable_order: true
+  max_permutations: 5

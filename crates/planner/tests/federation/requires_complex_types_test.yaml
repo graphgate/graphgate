@@ -1,0 +1,144 @@
+name: "Requires Complex Types Test"
+description: |
+  Tests that the @requires directive correctly handles complex types like objects and lists.
+
+  This test verifies that when a field with @requires depends on fields that are objects or lists,
+  the planner correctly fetches all the required fields from their respective services.
+
+schema:
+  users_complex: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type UserComplex @key(fields: "id") {
+      id: ID!
+      name: String!
+      preferences: UserPreferencesComplex! @shareable
+    }
+
+    type UserPreferencesComplex {
+      favoriteCategories: [String!]!
+      priceRange: PriceRangeComplex!
+    }
+
+    enum PriceRangeComplex {
+      BUDGET
+      MIDRANGE
+      PREMIUM
+    }
+
+    type Query {
+      userComplex(id: ID!): UserComplex @resolve(service: "users_complex")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products_complex: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@external",
+          "@requires"
+        ]
+      )
+
+    type ProductComplex @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Float!
+      category: String!
+      # This field requires the user's preferences to recommend products
+      recommendedProducts(userId: ID!): [ProductComplex!]! @requires(fields: "userComplex(userId: $userId) { preferences { favoriteCategories priceRange } }")
+      userComplex(userId: ID!): UserComplex
+    }
+
+    type UserComplex @key(fields: "id") {
+      id: ID!
+      preferences: UserPreferencesComplex! @external
+    }
+
+    type UserPreferencesComplex @external {
+      favoriteCategories: [String!]!
+      priceRange: PriceRangeComplex!
+    }
+
+    enum PriceRangeComplex {
+      BUDGET
+      MIDRANGE
+      PREMIUM
+    }
+
+    type Query {
+      topProductsComplex: [ProductComplex!]! @resolve(service: "products_complex")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    topProductsComplex {
+      id
+      name
+      price
+      category
+      recommendedProducts(userId: "user1") {
+        id
+        name
+        price
+      }
+      userComplex(userId: "user1") {
+        id
+        name
+        preferences {
+          favoriteCategories
+          priceRange
+        }
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products_complex"
+      query: "query\n{ topProductsComplex { id name price category userComplex(userId: \"user1\") { id __key1___typename:__typename __key1_id:id } } }"
+    - type: "flatten"
+      service: "users_complex"
+      path: "topProductsComplex.[userComplex]"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on UserComplex { name preferences { favoriteCategories priceRange } } } }"
+    - type: "flatten"
+      service: "products_complex"
+      path: "topProductsComplex"
+      prefix: 1
+      query: "query\n{ topProductsComplex { recommendedProducts(userId: \"user1\") { id name price } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "users_complex"
+  - assertion_type: "contains_service"
+    value: "products_complex"
+  - assertion_type: "path_exists"
+    path: "topProductsComplex.recommendedProducts"
+    value: true
+  - assertion_type: "path_exists"
+    path: "topProductsComplex.userComplex.preferences"
+    value: true

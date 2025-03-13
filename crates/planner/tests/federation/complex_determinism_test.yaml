@@ -1,0 +1,92 @@
+name: "Complex Determinism Test"
+description: "Tests determinism with a complex query involving multiple services and variables"
+
+schema:
+  Users: |
+    type User @key(fields: "id") {
+      id: ID!
+      name: String!
+      email: String!
+    }
+
+    type Query {
+      me: User!
+      user(id: ID!): User
+    }
+
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+  Products: |
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      price: Float! @shareable
+      description: String
+      category: String
+      inStock: Boolean!
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      favoriteProducts(limit: Int): [Product!]!
+    }
+
+    type Query {
+      product(id: ID!): Product
+      products(category: String, limit: Int, offset: Int): [Product!]!
+    }
+
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+query: |
+  query GetUserWithProducts($userId: ID!, $limit: Int) {
+    user(id: $userId) {
+      id
+      name
+      email
+      favoriteProducts(limit: $limit) {
+        id
+        name
+        price
+        description
+        category
+        inStock
+      }
+    }
+  }
+
+variables:
+  userId: "user-123"
+  limit: 10
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "Users"
+      query: "query($userId:ID!)\n{ user(id:$userId) { id name email } }"
+    - type: "flatten"
+      service: "Products"
+      path: "user"
+      prefix: 1
+      query: "query($representations:[_Any!]!,$limit:Int) { _entities(representations:$representations) { ... on User { favoriteProducts(limit:$limit) { id name price description category inStock } } } }"
+
+determinism_checks:
+  test_service_order: true
+  test_query_structure: true
+  test_variable_order: true
+  max_permutations: 6

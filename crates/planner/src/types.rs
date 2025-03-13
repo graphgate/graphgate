@@ -11,6 +11,7 @@ use serde::{
     Serialize,
     Serializer,
 };
+use std::collections::BTreeMap;
 use value::{ConstValue, Name, Value, Variables};
 
 use crate::plan::ResponsePath;
@@ -41,6 +42,25 @@ pub enum SelectionRef<'a> {
 
 #[derive(Default, Debug)]
 pub struct SelectionRefSet<'a>(pub Vec<SelectionRef<'a>>);
+
+impl<'a> SelectionRefSet<'a> {
+    pub fn add_type_condition(&mut self, type_name: &'a str) {
+        // Check if we already have an inline fragment for this type
+        for selection in &self.0 {
+            if let SelectionRef::InlineFragment { type_condition, .. } = selection {
+                if type_condition.as_ref() == Some(&type_name) {
+                    return;
+                }
+            }
+        }
+
+        // Add a new inline fragment for this type
+        self.0.push(SelectionRef::InlineFragment {
+            type_condition: Some(type_name),
+            selection_set: SelectionRefSet::default(),
+        });
+    }
+}
 
 impl Display for SelectionRefSet<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -201,7 +221,7 @@ pub trait RootGroup<'a> {
 }
 
 #[derive(Default)]
-pub struct QueryRootGroup<'a>(IndexMap<&'a str, SelectionRefSet<'a>>);
+pub struct QueryRootGroup<'a>(BTreeMap<&'a str, SelectionRefSet<'a>>);
 
 impl<'a> RootGroup<'a> for QueryRootGroup<'a> {
     fn selection_set_mut(&mut self, service: &'a str) -> &mut SelectionRefSet<'a> {
@@ -218,13 +238,8 @@ pub struct MutationRootGroup<'a>(Vec<(&'a str, SelectionRefSet<'a>)>);
 
 impl<'a> RootGroup<'a> for MutationRootGroup<'a> {
     fn selection_set_mut(&mut self, service: &'a str) -> &mut SelectionRefSet<'a> {
-        if self
-            .0
-            .last()
-            .filter(|(last_service, _)| *last_service == service)
-            .is_some()
-        {
-            return &mut self.0.last_mut().unwrap().1;
+        if let Some(idx) = self.0.iter().position(|(s, _)| *s == service) {
+            return &mut self.0[idx].1;
         }
         self.0.push((service, Default::default()));
         let last = self.0.last_mut().unwrap();
@@ -247,7 +262,7 @@ pub struct FetchEntity<'a> {
 pub struct FetchEntityKey<'a> {
     pub service: &'a str,
     pub path: ResponsePath<'a>,
-    pub ty: &'a str,
+    pub parent_type: &'a str,
 }
 
 pub type FetchEntityGroup<'a> = IndexMap<FetchEntityKey<'a>, FetchEntity<'a>>;

@@ -1,0 +1,188 @@
+name: "Provides Directive with Nested Fields Direct Test - Reviews"
+description: "Tests that the @provides directive correctly optimizes queries with nested fields by avoiding unnecessary service calls - Reviews case"
+
+schema:
+  products: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@provides",
+          "@shareable"
+        ]
+      )
+
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Int!
+      reviews: [Review!]! @provides(fields: "id author { id name profile { bio avatarUrl } }")
+      category: Category @provides(fields: "id name parent { id name }")
+    }
+
+    type Review @key(fields: "id") {
+      id: ID!
+      text: String! @shareable
+      rating: Int! @shareable
+      author: User! @shareable
+      product: Product! @shareable
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      email: String! @shareable
+      profile: UserProfile @shareable
+    }
+
+    type UserProfile {
+      bio: String @shareable
+      avatarUrl: String @shareable
+      socialLinks: [String!] @shareable
+    }
+
+    type Category @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      parent: Category @shareable
+      products: [Product!]! @shareable
+    }
+
+    type Query {
+      products: [Product!]!
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @provides(fields: String!) on FIELD_DEFINITION
+
+  reviews: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type Review @key(fields: "id") {
+      id: ID!
+      text: String! @shareable
+      rating: Int! @shareable
+      author: User! @shareable
+      product: Product! @shareable
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      profile: UserProfile @shareable
+    }
+
+    type UserProfile {
+      bio: String @shareable
+      avatarUrl: String @shareable
+      socialLinks: [String!] @shareable
+    }
+
+    type Product @key(fields: "id") {
+      id: ID!
+    }
+
+    type Query {
+      reviews: [Review!]!
+    }
+
+    directive @key(fields: String!) on OBJECT
+
+  users: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      email: String! @shareable
+      profile: UserProfile @shareable
+    }
+
+    type UserProfile {
+      bio: String @shareable
+      avatarUrl: String @shareable
+      socialLinks: [String!] @shareable
+    }
+
+    type Query {
+      users: [User!]!
+    }
+
+    directive @key(fields: String!) on OBJECT
+
+  categories: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type Category @key(fields: "id") {
+      id: ID!
+      name: String! @shareable
+      parent: Category @shareable
+      products: [Product!]! @shareable
+    }
+
+    type Product @key(fields: "id") {
+      id: ID!
+    }
+
+    type Query {
+      categories: [Category!]!
+    }
+
+    directive @key(fields: String!) on OBJECT
+
+query: |
+  {
+    products {
+      id
+      name
+      reviews {
+        id
+        author {
+          id
+          name
+          profile {
+            bio
+            avatarUrl
+          }
+        }
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "fetch"
+  service: "products"
+  query: "query\n{ products { id name reviews { id author { id name profile { bio avatarUrl } } } } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "products"
+  - assertion_type: "path_exists"
+    path: "products.reviews.author.profile"
+    value: true

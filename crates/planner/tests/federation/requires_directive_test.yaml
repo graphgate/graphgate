@@ -1,0 +1,118 @@
+name: "Requires Directive Test"
+description: |
+  Tests that the @requires directive correctly fetches required fields from other services.
+
+  The @requires directive specifies fields from an entity that must be fetched from another service
+  before a field can be resolved. In this test, the shippingCost field requires the user's country
+  to be fetched from the users service before it can be resolved.
+
+  The planner generates a plan that:
+  1. First fetches the basic product information and user reference from the products service
+  2. Then fetches the user's name and country from the users service
+  3. Finally fetches the shippingCost field from the products service using the country information
+
+schema:
+  users: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type User @key(fields: "id") {
+      id: ID!
+      name: String!
+      country: String! @shareable
+    }
+
+    type Query {
+      me: User! @resolve(service: "users")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@external",
+          "@requires",
+          "@resolve"
+        ]
+      )
+
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Float!
+      # This field requires the user's country to calculate shipping cost
+      shippingCost(userId: ID!): Float! @requires(fields: "user(userId: $userId) { country }") @resolve(service: "products")
+      user(userId: ID!): User @resolve(service: "users")
+    }
+
+    type User @key(fields: "id") {
+      id: ID!
+      country: String! @external
+    }
+
+    type Query {
+      topProducts: [Product!]! @resolve(service: "products")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    topProducts {
+      id
+      name
+      price
+      shippingCost(userId: "user1")
+      user(userId: "user1") {
+        id
+        name
+        country
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products"
+      query: "query\n{ topProducts { id name price user(userId: \"user1\") { id __key1___typename:__typename __key1_id:id } } }"
+    - type: "flatten"
+      service: "users"
+      path: "topProducts.[user]"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on User { name country } } }"
+    - type: "parallel"
+      nodes:
+        - type: "flatten"
+          service: "products"
+          path: "topProducts"
+          prefix: 2
+          query: "query\n{ topProducts { __key2_id:id shippingCost(userId: \"user1\") } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "users"
+  - assertion_type: "contains_service"
+    value: "products"
+  - assertion_type: "path_exists"
+    path: "topProducts.shippingCost"
+    value: true

@@ -1,0 +1,121 @@
+name: "Requires Multiple Fields Test"
+description: |
+  Tests that multiple @requires fields in a single query are handled correctly.
+
+  This test verifies that when multiple fields with @requires directives are present in a query,
+  the planner correctly fetches all required fields from their respective services.
+
+schema:
+  users_mf: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type UserMF @key(fields: "id") {
+      id: ID!
+      name: String!
+      country: String! @shareable
+      language: String! @shareable
+    }
+
+    type Query {
+      userMF(id: ID!): UserMF @resolve(service: "users_mf")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products_mf: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@external",
+          "@requires"
+        ]
+      )
+
+    type ProductMF @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Float!
+      # This field requires the user's country to calculate shipping cost
+      shippingCost(userId: ID!): Float! @requires(fields: "userMF(userId: $userId) { country }") @resolve(service: "products_mf")
+      # This field requires the user's language for localization
+      localizedDescription(userId: ID!): String! @requires(fields: "userMF(userId: $userId) { language }") @resolve(service: "products_mf")
+      userMF(userId: ID!): UserMF
+    }
+
+    type UserMF @key(fields: "id") {
+      id: ID!
+      country: String! @external
+      language: String! @external
+    }
+
+    type Query {
+      topProductsMF: [ProductMF!]! @resolve(service: "products_mf")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  {
+    topProductsMF {
+      id
+      name
+      price
+      shippingCost(userId: "user1")
+      localizedDescription(userId: "user1")
+      userMF(userId: "user1") {
+        id
+        name
+        country
+        language
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products_mf"
+      query: "query\n{ topProductsMF { id name price userMF(userId: \"user1\") { id __key1___typename:__typename __key1_id:id } } }"
+    - type: "flatten"
+      service: "users_mf"
+      path: "topProductsMF.[userMF]"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on UserMF { name country language } } }"
+    - type: "parallel"
+      nodes:
+        - type: "flatten"
+          service: "products_mf"
+          path: "topProductsMF"
+          prefix: 2
+          query: "query\n{ topProductsMF { __key2_id:id shippingCost(userId: \"user1\") localizedDescription(userId: \"user1\") } }"
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "users_mf"
+  - assertion_type: "contains_service"
+    value: "products_mf"
+  - assertion_type: "path_exists"
+    path: "topProductsMF.shippingCost"
+    value: true
+  - assertion_type: "path_exists"
+    path: "topProductsMF.localizedDescription"
+    value: true
