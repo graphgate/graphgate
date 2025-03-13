@@ -901,8 +901,8 @@ fn process_link_directive(composed_schema: &mut ComposedSchema, directive: &Cons
         if url.contains("federation") {
             if let Some(version) = url.split('/').last() {
                 // Remove 'v' prefix if present (e.g., v2.3 -> 2.3)
-                let version = if version.starts_with('v') {
-                    &version[1..]
+                let version = if let Some(stripped) = version.strip_prefix('v') {
+                    stripped
                 } else {
                     version
                 };
@@ -927,8 +927,8 @@ fn process_link_directive(composed_schema: &mut ComposedSchema, directive: &Cons
                     match import {
                         // Handle string format: "@directive"
                         ConstValue::String(directive_name) => {
-                            if directive_name.starts_with('@') {
-                                let name = directive_name[1..].to_string(); // Remove @ prefix
+                            if let Some(stripped) = directive_name.strip_prefix('@') {
+                                let name = stripped.to_string(); // Remove @ prefix
                                 composed_schema.directive_mapping.insert(name.clone(), name);
                             }
                         },

@@ -84,6 +84,7 @@ impl<'a> Visitor<'a> for ProvidesDirectiveFields {
 }
 
 impl ProvidesDirectiveFields {
+    #[allow(clippy::only_used_in_recursion)]
     fn validate_selection_set(
         &self,
         ctx: &mut VisitorContext<'_>,

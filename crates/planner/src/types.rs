@@ -42,6 +42,25 @@ pub enum SelectionRef<'a> {
 #[derive(Default, Debug)]
 pub struct SelectionRefSet<'a>(pub Vec<SelectionRef<'a>>);
 
+impl<'a> SelectionRefSet<'a> {
+    pub fn add_type_condition(&mut self, type_name: &'a str) {
+        // Check if we already have an inline fragment for this type
+        for selection in &self.0 {
+            if let SelectionRef::InlineFragment { type_condition, .. } = selection {
+                if type_condition.as_ref() == Some(&type_name) {
+                    return;
+                }
+            }
+        }
+
+        // Add a new inline fragment for this type
+        self.0.push(SelectionRef::InlineFragment {
+            type_condition: Some(type_name),
+            selection_set: SelectionRefSet::default(),
+        });
+    }
+}
+
 impl Display for SelectionRefSet<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         stringify_selection_ref_set_rec(f, self)
@@ -244,7 +263,7 @@ pub struct FetchEntity<'a> {
 pub struct FetchEntityKey<'a> {
     pub service: &'a str,
     pub path: ResponsePath<'a>,
-    pub ty: &'a str,
+    pub parent_type: &'a str,
 }
 
 pub type FetchEntityGroup<'a> = IndexMap<FetchEntityKey<'a>, FetchEntity<'a>>;

@@ -729,7 +729,7 @@ fn normalize_query_string(query: &str) -> String {
 fn generate_equivalent_queries(original: &str) -> Vec<String> {
     vec![
         // 1. Change whitespace
-        change_whitespace(original)
+        change_whitespace(original),
     ]
 }
 
