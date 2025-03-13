@@ -482,16 +482,49 @@ impl ComposedSchema {
                                             let is_field_shareable = original_field
                                                 .is_some_and(|f| has_directive(&f.node.directives, "shareable"));
 
-                                            if !type_is_shareable && !is_field_shareable {
+                                            // Check if the type is marked as @shareable in any service
+                                            let type_is_shareable_in_any_service = type_is_shareable ||
+                                                original_type_definitions
+                                                    .get(&meta_type.name.to_string())
+                                                    .map(|defs| {
+                                                        defs.values().any(|def| {
+                                                            let has_shareable =
+                                                                def.node.directives.iter().any(|dir| {
+                                                                    dir.node.name.node.as_str() == "shareable"
+                                                                });
+
+                                                            if has_shareable {
+                                                                tracing::debug!(
+                                                                    "Type {} is marked as @shareable in a service",
+                                                                    meta_type.name
+                                                                );
+                                                            }
+
+                                                            has_shareable
+                                                        })
+                                                    })
+                                                    .unwrap_or(false);
+
+                                            tracing::debug!(
+                                                "External field check for {}.{}: type_is_shareable={}, \
+                                                 type_is_shareable_in_any_service={}, is_field_shareable={}",
+                                                meta_type.name,
+                                                field_name,
+                                                type_is_shareable,
+                                                type_is_shareable_in_any_service,
+                                                is_field_shareable
+                                            );
+
+                                            if !type_is_shareable_in_any_service && !is_field_shareable {
                                                 return Err(CombineError::NonShareableFieldReferenced {
                                                     type_name: meta_type.name.to_string(),
                                                     field_name: field_name.to_string(),
                                                     service: service.clone(),
                                                 });
                                             }
-                                        }
 
-                                        continue;
+                                            continue;
+                                        }
                                     }
                                 }
 
@@ -629,7 +662,44 @@ impl ComposedSchema {
 
                                     // In Federation v2, fields must be explicitly marked as @shareable
                                     // or be part of an entity key to be shared across services
-                                    if !type_is_shareable && !is_field_shareable && !is_field_entity_key {
+                                    // or belong to a type that is marked as @shareable
+                                    let type_is_shareable_in_any_service = type_is_shareable ||
+                                        original_type_definitions
+                                            .get(&type_definition.node.name.node.to_string())
+                                            .map(|defs| {
+                                                defs.values().any(|def| {
+                                                    let has_shareable = def
+                                                        .node
+                                                        .directives
+                                                        .iter()
+                                                        .any(|dir| dir.node.name.node.as_str() == "shareable");
+
+                                                    if has_shareable {
+                                                        tracing::debug!(
+                                                            "Type {} is marked as @shareable in a service",
+                                                            type_definition.node.name.node
+                                                        );
+                                                    }
+
+                                                    has_shareable
+                                                })
+                                            })
+                                            .unwrap_or(false);
+
+                                    tracing::debug!(
+                                        "Field conflict check for {}.{}: type_is_shareable={}, \
+                                         type_is_shareable_in_any_service={}, is_field_shareable={}, \
+                                         is_field_entity_key={}",
+                                        type_definition.node.name.node,
+                                        field.node.name.node,
+                                        type_is_shareable,
+                                        type_is_shareable_in_any_service,
+                                        is_field_shareable,
+                                        is_field_entity_key
+                                    );
+
+                                    if !type_is_shareable_in_any_service && !is_field_shareable && !is_field_entity_key
+                                    {
                                         // Check if the field has the same type in both services
                                         if existing_field.ty != new_field.ty {
                                             // If the field types are different, provide a more specific error

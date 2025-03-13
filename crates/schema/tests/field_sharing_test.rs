@@ -653,7 +653,7 @@ fn test_shareable_type_with_multiple_keys() {
     type Product @key(fields: "id") @key(fields: "sku") @shareable {
         id: ID!
         sku: String!
-        name: String!  # Not marked as @shareable
+        name: String!  # Not marked as @shareable but implicitly shareable because the type is @shareable
         price: Int! @shareable
     }
 
@@ -671,7 +671,7 @@ fn test_shareable_type_with_multiple_keys() {
         sku: String!
         # Add a new field to the Product type
         reviews: [Review!]!
-        # Try to reference non-shareable field
+        # Reference fields from the shareable type
         name: String! @external
         price: Int! @external
     }
@@ -691,20 +691,38 @@ fn test_shareable_type_with_multiple_keys() {
     let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
     let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
 
-    // Combine the services - this should fail because 'name' is not marked as @shareable
+    // Combine the services - this should succeed because Product type is marked as @shareable
     let result = ComposedSchema::combine([
         ("service1".to_string(), service1_doc),
         ("service2".to_string(), service2_doc),
     ]);
 
-    // Verify that the combination failed with the expected error
+    // Verify that the combination succeeded
     match result {
-        Err(CombineError::FieldConflicted { type_name, field_name }) => {
-            assert_eq!(type_name, "Product");
-            assert_eq!(field_name, "name");
+        Ok(schema) => {
+            // Verify that the Product type exists and has all fields from both services
+            let product_type = schema
+                .types
+                .get("Product")
+                .expect("Product type not found in combined schema");
+
+            // Check fields from service1
+            assert!(
+                product_type.fields.contains_key("name"),
+                "name field not found in Product type"
+            );
+            assert!(
+                product_type.fields.contains_key("price"),
+                "price field not found in Product type"
+            );
+
+            // Check field from service2
+            assert!(
+                product_type.fields.contains_key("reviews"),
+                "reviews field not found in Product type"
+            );
         },
-        Ok(_) => panic!("Expected combination to fail due to non-shareable field"),
-        Err(e) => panic!("Expected FieldConflicted error, got: {:?}", e),
+        Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
     }
 }
 
@@ -1223,5 +1241,90 @@ fn test_multiple_services_with_progressive_argument_changes() {
             "Expected MissingRequiredArgument or FieldConflicted error, got: {:?}",
             e
         ),
+    }
+}
+
+#[test]
+fn test_object_level_shareable_directive() {
+    // Define two services with the same type, one using object-level @shareable
+    let service1_sdl = r#"
+    type User @key(fields: "id") {
+        id: ID!
+        name: String!
+        age: Int!
+    }
+
+    type Profile @key(fields: "userId") @shareable {
+        userId: ID!
+        bio: String!
+        avatar: String!
+        joinDate: String!
+    }
+
+    type Query {
+        user(id: ID!): User
+        profile(userId: ID!): Profile
+    }
+    "#;
+
+    let service2_sdl = r#"
+    type User @key(fields: "id") {
+        id: ID!
+        email: String!
+    }
+
+    type Profile @key(fields: "userId") {
+        userId: ID!
+        bio: String!  # Same field as in service1, should be implicitly shareable
+        avatar: String!  # Same field as in service1, should be implicitly shareable
+        status: String!  # New field only in service2
+    }
+
+    type Query {
+        users: [User!]!
+        profiles: [Profile!]!
+    }
+    "#;
+
+    // Parse the SDL into ServiceDocuments
+    let service1_doc = parse_schema(service1_sdl).expect("Failed to parse service1 SDL");
+    let service2_doc = parse_schema(service2_sdl).expect("Failed to parse service2 SDL");
+
+    // Combine the services - this should succeed because Profile type is marked as @shareable in service1
+    let result = ComposedSchema::combine([
+        ("service1".to_string(), service1_doc),
+        ("service2".to_string(), service2_doc),
+    ]);
+
+    // Verify that the combination succeeded
+    match result {
+        Ok(schema) => {
+            // Verify that the Profile type exists and has all fields from both services
+            let profile_type = schema
+                .types
+                .get("Profile")
+                .expect("Profile type not found in combined schema");
+
+            // Check fields from service1
+            assert!(
+                profile_type.fields.contains_key("bio"),
+                "bio field not found in Profile type"
+            );
+            assert!(
+                profile_type.fields.contains_key("avatar"),
+                "avatar field not found in Profile type"
+            );
+            assert!(
+                profile_type.fields.contains_key("joinDate"),
+                "joinDate field not found in Profile type"
+            );
+
+            // Check field from service2
+            assert!(
+                profile_type.fields.contains_key("status"),
+                "status field not found in Profile type"
+            );
+        },
+        Err(e) => panic!("Expected combination to succeed, got error: {:?}", e),
     }
 }
