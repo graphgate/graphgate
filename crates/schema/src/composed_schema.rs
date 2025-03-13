@@ -90,7 +90,6 @@ pub struct MetaField {
     /// reviews and their authors' names, the gateway can avoid making a separate call to
     /// the users service to fetch the author information.
     pub provides: Option<KeyFields>,
-
     /// Tags applied to this field using the `@tag` directive.
     /// Each tag is stored as a string value.
     pub tags: Vec<String>,
@@ -152,7 +151,6 @@ pub struct MetaType {
     pub possible_types: IndexSet<Name>,
     pub enum_values: IndexMap<Name, MetaEnumValue>,
     pub input_fields: IndexMap<Name, MetaInputValue>,
-
     /// Tags applied to this type using the `@tag` directive.
     /// Each tag is stored as a string value.
     pub tags: Vec<String>,
@@ -806,7 +804,6 @@ impl ComposedSchema {
                                     let meta_type2 = composed_schema.types.get_mut(&meta_type.name).unwrap();
                                     meta_type2.owner = None;
                                 }
-
                                 // Process @tag directives
                                 for directive in &directives {
                                     if directive.node.name.node.as_str() == "tag" {
@@ -824,6 +821,15 @@ impl ComposedSchema {
                                 // Only set an owner if the type is not shareable
                                 if !type_is_shareable {
                                     type_to_insert.owner = Some(service.clone());
+                                }
+                                
+                                // Process @tag directives
+                                for directive in &directives {
+                                    if directive.node.name.node.as_str() == "tag" {
+                                        if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
+                                            type_to_insert.tags.push(name.node.to_string());
+                                        }
+                                    }
                                 }
 
                                 // Process @tag directives
@@ -1114,7 +1120,6 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
                         deprecation: get_deprecated(&value.node.directives),
                         tags: Default::default(),
                     };
-
                     // Process @tag directives for enum values
                     for directive in value.node.directives {
                         if directive.node.name.node.as_str() == "tag" {
@@ -1123,7 +1128,6 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
                             }
                         }
                     }
-
                     (value.node.value.node.clone(), enum_value)
                 })
                 .collect();
@@ -1135,7 +1139,6 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
                 .map(|field| {
                     let name = field.node.name.node.clone();
                     let input_value = convert_input_value_definition(field.node);
-
                     (name, input_value)
                 })
                 .collect();
@@ -1214,7 +1217,6 @@ fn process_type_definition(composed_schema: &ComposedSchema, definition: TypeDef
                 type_is_resolvable = resolvable.node;
             }
         }
-
         // Process @tag directive
         if directive_name == "tag" ||
             (composed_schema.is_federation_v2() && directive_name == composed_schema.get_namespaced_directive("tag"))
@@ -1262,7 +1264,7 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
                 if let Some(service) = get_argument_str(&directive.node.arguments, "service") {
                     field.service = Some(service.node.to_string());
                 }
-            },
+            }
             "requires" => {
                 if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
                     if let Some(selection_set) =
@@ -1271,7 +1273,7 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
                         field.requires = Some(convert_key_fields(selection_set.node));
                     }
                 }
-            },
+            }
             "provides" => {
                 if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
                     if let Some(selection_set) =
@@ -1285,8 +1287,13 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
                 if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
                     field.tags.push(name.node.to_string());
                 }
-            },
-            _ => {},
+            }
+            "tag" => {
+                if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
+                    field.tags.push(name.node.to_string());
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1317,7 +1324,6 @@ fn convert_input_value_definition(arg: parser::types::InputValueDefinition) -> M
         default_value: arg.default_value.map(|default_value| default_value.node),
         tags: Default::default(),
     };
-
     // Process @tag directives for input values
     for directive in arg.directives {
         if directive.node.name.node.as_str() == "tag" {
@@ -1326,7 +1332,6 @@ fn convert_input_value_definition(arg: parser::types::InputValueDefinition) -> M
             }
         }
     }
-
     input_value
 }
 
