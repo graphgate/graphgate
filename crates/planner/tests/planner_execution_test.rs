@@ -3,8 +3,8 @@ use std::path::Path;
 use graphgate_planner::PlanBuilder;
 use graphgate_schema::ComposedSchema;
 use pretty_assertions::assert_eq;
-use value::Variables;
 use test_case::test_case;
+use value::Variables;
 
 // Import the structured test runner functions
 mod structured_test_runner;

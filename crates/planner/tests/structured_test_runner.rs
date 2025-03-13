@@ -5,10 +5,9 @@ use std::{
 
 use graphgate_planner::{PlanBuilder, RootNode};
 use graphgate_schema::ComposedSchema;
-use parser::{parse_query, parse_schema};
-use parser::types::ExecutableDocument;
+use parser::{parse_query, parse_schema, types::ExecutableDocument};
 use serde::Deserialize;
-use serde_json::{Value as JsonValue};
+use serde_json::Value as JsonValue;
 use tracing::debug;
 use value::Variables;
 
@@ -42,7 +41,7 @@ pub struct PlannerTestCase {
     /// Optional assertions about the plan
     #[serde(default)]
     pub assertions: Vec<PlanAssertion>,
-    
+
     /// Optional determinism checks to perform
     #[serde(default)]
     pub determinism_checks: DeterminismChecks,
@@ -54,15 +53,15 @@ pub struct DeterminismChecks {
     /// Whether to test service order determinism
     #[serde(default)]
     pub test_service_order: bool,
-    
+
     /// Whether to test query structure determinism
     #[serde(default)]
     pub test_query_structure: bool,
-    
+
     /// Whether to test variable order determinism
     #[serde(default)]
     pub test_variable_order: bool,
-    
+
     /// Maximum number of permutations to test (to avoid excessive test times)
     #[serde(default = "default_max_permutations")]
     pub max_permutations: usize,
@@ -158,6 +157,22 @@ pub fn run_structured_test(test_file: &Path) {
         serde_json::to_string_pretty(&actual_plan_json).unwrap()
     );
 
+    // Add more detailed debugging for the requires_multi_hop test
+    if test_file.to_string_lossy().contains("requires_multi_hop") {
+        println!(
+            "Expected plan: {}",
+            serde_json::to_string_pretty(&expected_plan_json).unwrap()
+        );
+        println!(
+            "Actual plan: {}",
+            serde_json::to_string_pretty(&actual_plan_json).unwrap()
+        );
+
+        // Print services in the plan
+        let services = count_services_in_plan(&actual_plan_json);
+        println!("Services in plan: {:?}", services);
+    }
+
     // Check if the actual plan matches any of the expected plans
     let mut plan_matched = actual_plan_json == expected_plan_json;
 
@@ -199,9 +214,9 @@ pub fn run_structured_test(test_file: &Path) {
 }
 
 /// Runs a single test file in isolation
-fn run_single_test_file(test_file: &PathBuf) {
+fn run_single_test_file(test_file: &Path) {
     debug!("Running test file: {}", test_file.display());
-    
+
     // Run the test in isolation
     run_structured_test(test_file);
 }
@@ -270,7 +285,8 @@ fn check_assertion(plan_json: &JsonValue, assertion: &PlanAssertion) {
             assert!(
                 actual_depth <= expected_depth as usize,
                 "Expected max depth of {}, but found {}",
-                expected_depth, actual_depth
+                expected_depth,
+                actual_depth
             );
         },
         "variables_passed" => {
@@ -280,7 +296,7 @@ fn check_assertion(plan_json: &JsonValue, assertion: &PlanAssertion) {
                 .value
                 .as_bool()
                 .unwrap_or_else(|| panic!("variables_passed assertion requires a boolean value"));
-            
+
             assert_eq!(
                 has_variables, expected,
                 "Expected variables_passed to be {}, but was {}",
@@ -297,7 +313,7 @@ fn count_nodes_in_plan(plan_json: &JsonValue) -> usize {
     if let Some(nodes) = plan_json.get("nodes").and_then(|n| n.as_array()) {
         return nodes.len();
     }
-    
+
     // For other node types, return 1
     1
 }
@@ -305,17 +321,17 @@ fn count_nodes_in_plan(plan_json: &JsonValue) -> usize {
 /// Calculates the maximum depth of a plan
 fn calculate_max_depth(plan_json: &JsonValue) -> usize {
     let mut max_depth = 0;
-    
+
     if let Some(nodes) = plan_json.get("nodes").and_then(|n| n.as_array()) {
         for node in nodes {
             let depth = calculate_max_depth(node);
             max_depth = max_depth.max(depth);
         }
-        
+
         // Add 1 for the current level
         max_depth += 1;
     }
-    
+
     max_depth
 }
 
@@ -324,7 +340,7 @@ fn plan_has_variables(plan_json: &JsonValue) -> bool {
     if plan_json.get("variables").is_some() {
         return true;
     }
-    
+
     if let Some(nodes) = plan_json.get("nodes").and_then(|n| n.as_array()) {
         for node in nodes {
             if plan_has_variables(node) {
@@ -332,7 +348,7 @@ fn plan_has_variables(plan_json: &JsonValue) -> bool {
             }
         }
     }
-    
+
     false
 }
 
@@ -435,24 +451,31 @@ fn path_exists_in_plan(plan_json: &JsonValue, path: &str) -> bool {
 }
 
 /// Tests that the planner produces the same plan regardless of service order
-fn test_service_order_determinism(test_case: &PlannerTestCase, _schema: &ComposedSchema, document: &ExecutableDocument, variables: &Variables) {
-    use std::collections::HashMap;
+fn test_service_order_determinism(
+    test_case: &PlannerTestCase,
+    _schema: &ComposedSchema,
+    document: &ExecutableDocument,
+    variables: &Variables,
+) {
     use itertools::Itertools;
-    
+    use std::collections::HashMap;
+
     // Skip test if there are fewer than 2 services
     if test_case.schema.len() < 2 {
         debug!("Skipping service order determinism test as there are fewer than 2 services");
         return;
     }
-    
+
     // Get all permutations of service names
     let service_names: Vec<String> = test_case.schema.keys().cloned().collect();
-    let permutations = service_names.iter().permutations(service_names.len())
+    let permutations = service_names
+        .iter()
+        .permutations(service_names.len())
         .take(test_case.determinism_checks.max_permutations);
-    
+
     // Store the first plan as our reference
     let mut reference_plan: Option<JsonValue> = None;
-    
+
     // Test each permutation
     for perm in permutations {
         // Create a schema with this permutation order
@@ -461,161 +484,181 @@ fn test_service_order_determinism(test_case: &PlannerTestCase, _schema: &Compose
             let sdl = test_case.schema.get(service_name).unwrap().clone();
             permuted_schema.insert(service_name.clone(), sdl);
         }
-        
+
         // Build the schema
         let schema_result = ComposedSchema::combine(permuted_schema.into_iter().map(|(name, sdl)| {
             let document = parser::parse_schema(&sdl).unwrap();
             (name, document)
         }));
-        
+
         // Skip this permutation if schema composition fails
         if schema_result.is_err() {
-            debug!("Skipping permutation due to schema composition error: {:?}", schema_result.err());
+            debug!(
+                "Skipping permutation due to schema composition error: {:?}",
+                schema_result.err()
+            );
             continue;
         }
-        
+
         let permuted_schema = schema_result.unwrap();
-        
+
         // Create the plan
         let builder = PlanBuilder::new(&permuted_schema, document.clone()).variables(variables.clone());
         let plan_result = builder.plan();
-        
+
         // Skip this permutation if plan creation fails
         if plan_result.is_err() {
-            debug!("Skipping permutation due to plan creation error: {:?}", plan_result.err());
+            debug!(
+                "Skipping permutation due to plan creation error: {:?}",
+                plan_result.err()
+            );
             continue;
         }
-        
+
         let plan = plan_result.unwrap();
         let plan_json = serde_json::to_value(plan).unwrap();
-        
+
         // Normalize the plan by removing service names which might differ
         let normalized_plan = normalize_plan_for_comparison(&plan_json);
-        
+
         // If this is the first permutation, store it as reference
         if reference_plan.is_none() {
             reference_plan = Some(normalized_plan.clone());
             continue;
         }
-        
+
         // Compare with reference plan
         assert_eq!(
-            normalized_plan, 
+            normalized_plan,
             reference_plan.as_ref().unwrap().clone(),
             "Plans differ between service permutations"
         );
     }
-    
+
     // Ensure we had at least one successful permutation
-    assert!(reference_plan.is_some(), "No valid permutations found for service order determinism test");
-    
+    assert!(
+        reference_plan.is_some(),
+        "No valid permutations found for service order determinism test"
+    );
+
     debug!("Service order determinism test passed");
 }
 
 /// Tests that the planner produces the same plan for equivalent queries
-fn test_query_structure_determinism(test_case: &PlannerTestCase, schema: &ComposedSchema, document: &ExecutableDocument, variables: &Variables) {
+fn test_query_structure_determinism(
+    test_case: &PlannerTestCase,
+    schema: &ComposedSchema,
+    document: &ExecutableDocument,
+    variables: &Variables,
+) {
     // Original query
     let original_query = &test_case.query;
-    
+
     // Create equivalent queries with different structure
     let equivalent_queries = generate_equivalent_queries(original_query);
-    
+
     // Get the plan for the original query
     let original_builder = PlanBuilder::new(schema, document.clone()).variables(variables.clone());
     let original_plan = original_builder.plan().unwrap();
     let original_plan_json = serde_json::to_value(original_plan).unwrap();
-    
+
     // Test each equivalent query
     for (i, equivalent_query) in equivalent_queries.iter().enumerate() {
         debug!("Testing equivalent query variant {}", i + 1);
-        
+
         // Skip invalid queries
         let document_result = parser::parse_query(equivalent_query);
         if document_result.is_err() {
             debug!("Skipping invalid query variant {}: {:?}", i + 1, document_result.err());
             continue;
         }
-        
+
         let equivalent_document = document_result.unwrap();
         let equivalent_builder = PlanBuilder::new(schema, equivalent_document).variables(variables.clone());
-        
+
         let plan_result = equivalent_builder.plan();
         if plan_result.is_err() {
-            debug!("Skipping query variant {} due to plan error: {:?}", i + 1, plan_result.err());
+            debug!(
+                "Skipping query variant {} due to plan error: {:?}",
+                i + 1,
+                plan_result.err()
+            );
             continue;
         }
-        
+
         let equivalent_plan = plan_result.unwrap();
         let equivalent_plan_json = serde_json::to_value(equivalent_plan).unwrap();
-        
+
         // Compare the plans directly, but only check the type field
         // The query field might differ in whitespace or field order, which is acceptable
         let original_type = original_plan_json.get("type").unwrap();
         let equivalent_type = equivalent_plan_json.get("type").unwrap();
-        
+
         assert_eq!(
-            equivalent_type,
-            original_type,
+            equivalent_type, original_type,
             "Plan types differ between equivalent queries"
         );
-        
+
         // For fetch operations, check that the service is the same
         if original_type.as_str() == Some("fetch") {
             if let (Some(original_service), Some(equivalent_service)) = (
                 original_plan_json.get("service").and_then(|s| s.as_str()),
-                equivalent_plan_json.get("service").and_then(|s| s.as_str())
+                equivalent_plan_json.get("service").and_then(|s| s.as_str()),
             ) {
                 assert_eq!(
-                    equivalent_service,
-                    original_service,
+                    equivalent_service, original_service,
                     "Services differ between equivalent queries"
                 );
             }
         }
     }
-    
+
     debug!("Query structure determinism test passed");
 }
 
 /// Tests that the planner produces the same plan regardless of variable order
-fn test_variable_order_determinism(test_case: &PlannerTestCase, schema: &ComposedSchema, document: &ExecutableDocument, variables: &Variables) {
+fn test_variable_order_determinism(
+    test_case: &PlannerTestCase,
+    schema: &ComposedSchema,
+    document: &ExecutableDocument,
+    variables: &Variables,
+) {
     // Skip test if there are no variables
-    if test_case.variables.as_object().map_or(true, |obj| obj.is_empty()) {
+    if test_case.variables.as_object().is_none_or(|obj| obj.is_empty()) {
         debug!("Skipping variable order determinism test as there are no variables");
         return;
     }
-    
+
     // Original variables
     let original_variables = variables;
-    
+
     // Create the plan with original variables
     let original_builder = PlanBuilder::new(schema, document.clone()).variables(original_variables.clone());
     let original_plan = original_builder.plan().unwrap();
     let original_plan_json = serde_json::to_value(original_plan).unwrap();
     let normalized_original = normalize_plan_for_comparison(&original_plan_json);
-    
+
     // Create equivalent variable orders
     let variable_permutations = generate_variable_permutations(&test_case.variables)
         .into_iter()
         .take(test_case.determinism_checks.max_permutations);
-    
+
     // Test each variable permutation
     for (i, vars) in variable_permutations.enumerate() {
         debug!("Testing variable permutation {}", i + 1);
-        
+
         let permuted_variables: Variables = serde_json::from_value(vars.clone()).unwrap_or_default();
         let permuted_builder = PlanBuilder::new(schema, document.clone()).variables(permuted_variables);
         let permuted_plan = permuted_builder.plan().unwrap();
         let permuted_plan_json = serde_json::to_value(permuted_plan).unwrap();
         let normalized_permuted = normalize_plan_for_comparison(&permuted_plan_json);
-        
+
         assert_eq!(
-            normalized_permuted,
-            normalized_original,
+            normalized_permuted, normalized_original,
             "Plans differ between variable permutations"
         );
     }
-    
+
     debug!("Variable order determinism test passed");
 }
 
@@ -625,7 +668,7 @@ fn normalize_plan_for_comparison(plan: &JsonValue) -> JsonValue {
     match plan {
         JsonValue::Object(obj) => {
             let mut result = serde_json::Map::new();
-            
+
             // Copy all fields except those we want to normalize
             for (key, value) in obj {
                 if key == "service" {
@@ -642,18 +685,16 @@ fn normalize_plan_for_comparison(plan: &JsonValue) -> JsonValue {
                 } else if key == "nodes" && value.is_array() {
                     // For arrays of nodes, we need to sort them to ensure consistent order
                     if let Some(nodes) = value.as_array() {
-                        let mut normalized_nodes: Vec<JsonValue> = nodes
-                            .iter()
-                            .map(normalize_plan_for_comparison)
-                            .collect();
-                        
+                        let mut normalized_nodes: Vec<JsonValue> =
+                            nodes.iter().map(normalize_plan_for_comparison).collect();
+
                         // Sort nodes by their normalized representation
                         normalized_nodes.sort_by(|a, b| {
                             let a_str = serde_json::to_string(a).unwrap_or_default();
                             let b_str = serde_json::to_string(b).unwrap_or_default();
                             a_str.cmp(&b_str)
                         });
-                        
+
                         result.insert(key.clone(), JsonValue::Array(normalized_nodes));
                     } else {
                         result.insert(key.clone(), normalize_plan_for_comparison(value));
@@ -663,12 +704,10 @@ fn normalize_plan_for_comparison(plan: &JsonValue) -> JsonValue {
                     result.insert(key.clone(), normalize_plan_for_comparison(value));
                 }
             }
-            
+
             JsonValue::Object(result)
         },
-        JsonValue::Array(arr) => {
-            JsonValue::Array(arr.iter().map(normalize_plan_for_comparison).collect())
-        },
+        JsonValue::Array(arr) => JsonValue::Array(arr.iter().map(normalize_plan_for_comparison).collect()),
         // Other JSON types can be returned as is
         _ => plan.clone(),
     }
@@ -679,8 +718,7 @@ fn normalize_query_string(query: &str) -> String {
     // This is a simplified normalization that removes all whitespace
     // A more sophisticated version would parse and reformat the query
     query
-        .replace('\n', " ")
-        .replace('\t', " ")
+        .replace(['\n', '\t'], " ")
         .split_whitespace()
         .collect::<Vec<&str>>()
         .join(" ")
@@ -689,62 +727,57 @@ fn normalize_query_string(query: &str) -> String {
 
 /// Generates equivalent queries with different structure but same semantics
 fn generate_equivalent_queries(original: &str) -> Vec<String> {
-    let mut result = Vec::new();
-    
-    // 1. Change whitespace
-    result.push(change_whitespace(original));
-    
-    result
+    vec![
+        // 1. Change whitespace
+        change_whitespace(original)
+    ]
 }
 
 /// Changes whitespace in a query while preserving semantics
 fn change_whitespace(query: &str) -> String {
     // Remove all whitespace and then add it back in a different way
     let compact = query
-        .replace('\n', " ")
-        .replace('\t', " ")
+        .replace(['\n', '\t'], " ")
         .split_whitespace()
         .collect::<Vec<&str>>()
         .join(" ");
-    
+
     // Add newlines after braces
-    compact
-        .replace(" { ", " {\n  ")
-        .replace(" } ", "\n}\n")
+    compact.replace(" { ", " {\n  ").replace(" } ", "\n}\n")
 }
 
 /// Generates different but equivalent variable orders
 fn generate_variable_permutations(variables: &JsonValue) -> Vec<JsonValue> {
     use itertools::Itertools;
-    
+
     let mut result = Vec::new();
-    
+
     if let Some(obj) = variables.as_object() {
         if obj.len() >= 2 {
             // Get all keys
             let keys: Vec<String> = obj.keys().cloned().collect();
-            
+
             // Generate all permutations of keys
             for perm in keys.iter().permutations(keys.len()) {
                 let mut new_obj = serde_json::Map::new();
-                
+
                 // Add keys in this permutation
                 for key in perm {
                     if let Some(value) = obj.get(key) {
                         new_obj.insert(key.clone(), value.clone());
                     }
                 }
-                
+
                 result.push(JsonValue::Object(new_obj));
             }
         }
     }
-    
+
     // If we couldn't generate permutations, return the original
     if result.is_empty() {
         result.push(variables.clone());
     }
-    
+
     result
 }
 
@@ -752,7 +785,7 @@ fn generate_variable_permutations(variables: &JsonValue) -> Vec<JsonValue> {
 mod tests {
     use super::*;
     use std::sync::Once;
-    use tracing_subscriber;
+
     use test_case::test_case;
 
     static INIT: Once = Once::new();
@@ -765,10 +798,12 @@ mod tests {
     }
 
     // Generate test cases for federation tests
-    #[test_case("tests/federation/requires_directive_test.yaml"; "requires directive")]
-    #[test_case("tests/federation/requires_multiple_fields_test.yaml"; "requires multiple fields")]
-    #[test_case("tests/federation/requires_variables_test.yaml"; "requires variables")]
-    #[test_case("tests/federation/federation_text_test.yaml"; "federation text")]
+    #[test_case("tests/federation/requires_directive_test.yaml"; "requires_directive")]
+    #[test_case("tests/federation/requires_multi_hop_test.yaml"; "requires_multi_hop")]
+    #[test_case("tests/federation/requires_multiple_fields_test.yaml"; "requires_multiple_fields")]
+    #[test_case("tests/federation/requires_variables_test.yaml"; "requires_variables")]
+    #[test_case("tests/federation/requires_deep_nesting_test.yaml"; "requires_deep_nesting")]
+    #[test_case("tests/federation/federation_text_test.yaml"; "federation_text")]
     #[test_case("tests/federation/federation_order_test.yaml"; "federation order")]
     #[test_case("tests/federation/mixed_versions.yaml"; "mixed versions")]
     #[test_case("tests/federation/provides_test.yaml"; "provides")]

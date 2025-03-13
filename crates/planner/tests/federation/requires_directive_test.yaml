@@ -42,7 +42,8 @@ schema:
         import: [
           "@key",
           "@external",
-          "@requires"
+          "@requires",
+          "@resolve"
         ]
       )
 
@@ -51,8 +52,8 @@ schema:
       name: String!
       price: Float!
       # This field requires the user's country to calculate shipping cost
-      shippingCost(userId: ID!): Float! @requires(fields: "user(userId: $userId) { country }")
-      user(userId: ID!): User
+      shippingCost(userId: ID!): Float! @requires(fields: "user(userId: $userId) { country }") @resolve(service: "products")
+      user(userId: ID!): User @resolve(service: "users")
     }
 
     type User @key(fields: "id") {
@@ -97,11 +98,13 @@ expected_plan:
       path: "topProducts.[user]"
       prefix: 1
       query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on User { name country } } }"
-    - type: "flatten"
-      service: "products"
-      path: "topProducts"
-      prefix: 1
-      query: "query\n{ topProducts { shippingCost(userId: \"user1\") } }"
+    - type: "parallel"
+      nodes:
+        - type: "flatten"
+          service: "products"
+          path: "topProducts"
+          prefix: 2
+          query: "query\n{ topProducts { __key2_id:id shippingCost(userId: \"user1\") } }"
 
 assertions:
   - assertion_type: "service_count"

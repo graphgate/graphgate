@@ -1,0 +1,166 @@
+name: "Requires Deep Nesting Test"
+description: |
+  Tests that the @requires directive correctly handles deeply nested dependencies.
+
+  This test verifies that when there are multiple levels of nested @requires directives,
+  the planner correctly resolves all dependencies in the right order without infinite recursion.
+
+schema:
+  users_deep: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type UserDeep @key(fields: "id") {
+      id: ID!
+      name: String!
+      country: String! @shareable
+      language: String! @shareable
+      timezone: String! @shareable
+    }
+
+    type Query {
+      userDeep(id: ID!): UserDeep @resolve(service: "users_deep")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products_deep: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@external",
+          "@requires"
+        ]
+      )
+
+    type ProductDeep @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Float!
+      # Level 1 requires
+      taxRate(userId: ID!): Float! @requires(fields: "userDeep(userId: $userId) { country }")
+      # Level 2 requires (depends on level 1)
+      totalPrice(userId: ID!): Float! @requires(fields: "taxRate(userId: $userId)")
+      # Level 3 requires (depends on level 2)
+      formattedPrice(userId: ID!): String! @requires(fields: "totalPrice(userId: $userId) userDeep(userId: $userId) { language }")
+      # Level 4 requires (depends on level 3)
+      displayPrice(userId: ID!): String! @requires(fields: "formattedPrice(userId: $userId) userDeep(userId: $userId) { timezone }")
+      userDeep(userId: ID!): UserDeep
+    }
+
+    type UserDeep @key(fields: "id") {
+      id: ID!
+      country: String! @external
+      language: String! @external
+      timezone: String! @external
+    }
+
+    type Query {
+      productDeep(id: ID!): ProductDeep @resolve(service: "products_deep")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  query GetProductDetails($productId: ID!, $userId: ID!) {
+    productDeep(id: $productId) {
+      id
+      name
+      price
+      taxRate(userId: $userId)
+      totalPrice(userId: $userId)
+      formattedPrice(userId: $userId)
+      displayPrice(userId: $userId)
+      userDeep(userId: $userId) {
+        id
+        name
+        country
+        language
+        timezone
+      }
+    }
+  }
+
+variables: { "productId": "product1", "userId": "user1" }
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products_deep"
+      query: "query GetProductDetails($productId: ID!, $userId: ID!)\n{ productDeep(id: $productId) { id name price userDeep(userId: $userId) { id __key1___typename:__typename __key1_id:id } } }"
+      variables: { "productId": "product1", "userId": "user1" }
+    - type: "flatten"
+      service: "users_deep"
+      path: "productDeep.userDeep"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on UserDeep { name country language timezone } } }"
+    - type: "parallel"
+      nodes:
+        - type: "flatten"
+          service: "products_deep"
+          path: "productDeep"
+          prefix: 2
+          query: "query GetProductDetails($productId: ID!, $userId: ID!)\n{ productDeep(id: $productId) { __key2_id:id taxRate(userId: $userId) } }"
+          variables: { "productId": "product1", "userId": "user1" }
+    - type: "parallel"
+      nodes:
+        - type: "flatten"
+          service: "products_deep"
+          path: "productDeep"
+          prefix: 3
+          query: "query GetProductDetails($productId: ID!, $userId: ID!)\n{ productDeep(id: $productId) { __key3_id:id totalPrice(userId: $userId) } }"
+          variables: { "productId": "product1", "userId": "user1" }
+    - type: "parallel"
+      nodes:
+        - type: "flatten"
+          service: "products_deep"
+          path: "productDeep"
+          prefix: 4
+          query: "query GetProductDetails($productId: ID!, $userId: ID!)\n{ productDeep(id: $productId) { __key4_id:id formattedPrice(userId: $userId) } }"
+          variables: { "productId": "product1", "userId": "user1" }
+    - type: "parallel"
+      nodes:
+        - type: "flatten"
+          service: "products_deep"
+          path: "productDeep"
+          prefix: 5
+          query: "query GetProductDetails($productId: ID!, $userId: ID!)\n{ productDeep(id: $productId) { __key5_id:id displayPrice(userId: $userId) } }"
+          variables: { "productId": "product1", "userId": "user1" }
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "users_deep"
+  - assertion_type: "contains_service"
+    value: "products_deep"
+  - assertion_type: "path_exists"
+    path: "productDeep.taxRate"
+    value: true
+  - assertion_type: "path_exists"
+    path: "productDeep.totalPrice"
+    value: true
+  - assertion_type: "path_exists"
+    path: "productDeep.formattedPrice"
+    value: true
+  - assertion_type: "path_exists"
+    path: "productDeep.displayPrice"
+    value: true
+  - assertion_type: "node_count"
+    value: 4
+  - assertion_type: "max_depth"
+    value: 2

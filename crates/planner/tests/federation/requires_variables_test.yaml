@@ -46,7 +46,7 @@ schema:
       name: String!
       price: Float!
       # This field requires the user's country to calculate shipping cost
-      shippingCost(userId: ID!): Float! @requires(fields: "userVars(userId: $userId) { country }")
+      shippingCost(userId: ID!): Float! @requires(fields: "userVars(userId: $userId) { country }") @resolve(service: "products_vars")
       userVars(userId: ID!): UserVars
     }
 
@@ -93,12 +93,14 @@ expected_plan:
       path: "productVars.[userVars]"
       prefix: 1
       query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on UserVars { name country } } }"
-    - type: "flatten"
-      service: "products_vars"
-      path: "productVars"
-      prefix: 1
-      query: "query GetProductWithShipping($productId: ID!, $userId: ID!)\n{ productVars(id: $productId) { shippingCost(userId: $userId) } }"
-      variables: { "productId": "product1", "userId": "user1" }
+    - type: "parallel"
+      nodes:
+        - type: "flatten"
+          service: "products_vars"
+          path: "productVars"
+          prefix: 2
+          query: "query GetProductWithShipping($productId: ID!, $userId: ID!)\n{ productVars(id: $productId) { __key2_id:id shippingCost(userId: $userId) } }"
+          variables: { "productId": "product1", "userId": "user1" }
 
 assertions:
   - assertion_type: "service_count"

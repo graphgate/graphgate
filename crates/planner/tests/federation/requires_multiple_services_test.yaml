@@ -1,9 +1,9 @@
 name: "Requires Multiple Services Test"
 description: |
-  Tests that the @requires directive correctly handles dependencies across multiple services.
+  Tests that the @requires directive can handle fields that require data from multiple services.
 
-  This test verifies that when a field with @requires depends on data from multiple services,
-  the planner correctly orchestrates the data fetching across all services in the right order.
+  This test verifies that when a field requires data from multiple different services,
+  the planner correctly orchestrates fetching all the required data before resolving the field.
 
 schema:
   users_ms: |
@@ -41,10 +41,17 @@ schema:
         ]
       )
 
+    type WarehouseMS {
+      id: String!
+      name: String!
+      location: String!
+    }
+
     type ProductMS @key(fields: "id") {
       id: ID!
-      stock: Int! @shareable
-      warehouse: String! @shareable
+      inStock: Boolean!
+      restockDate: String
+      warehouseInfo: WarehouseMS! @shareable
     }
 
     type Query {
@@ -66,14 +73,19 @@ schema:
         ]
       )
 
+    type WarehouseMS @external {
+      id: String!
+      name: String!
+      location: String!
+    }
+
     type ProductMS @key(fields: "id") {
       id: ID!
       name: String!
       price: Float!
-      stock: Int! @external
-      warehouse: String! @external
-      # This field requires both user data and inventory data
-      deliveryEstimate(userId: ID!): String! @requires(fields: "userMS(userId: $userId) { country tier } stock warehouse")
+      # This field requires data from both users and inventory services
+      finalPrice(userId: ID!): Float! @requires(fields: "userMS(userId: $userId) { country tier } warehouseInfo { id location }")
+      warehouseInfo: WarehouseMS! @external
       userMS(userId: ID!): UserMS
     }
 
@@ -93,15 +105,18 @@ schema:
     directive @resolve(service: String!) on FIELD_DEFINITION
 
 query: |
-  query GetDeliveryEstimate($userId: ID!) {
+  {
     topProductsMS {
       id
       name
       price
-      stock
-      warehouse
-      deliveryEstimate(userId: $userId)
-      userMS(userId: $userId) {
+      finalPrice(userId: "user1")
+      warehouseInfo {
+        id
+        name
+        location
+      }
+      userMS(userId: "user1") {
         id
         name
         country
@@ -110,15 +125,14 @@ query: |
     }
   }
 
-variables: { "userId": "user1" }
+variables: {}
 
 expected_plan:
   type: "sequence"
   nodes:
     - type: "fetch"
       service: "products_ms"
-      query: "query GetDeliveryEstimate($userId: ID!)\n{ topProductsMS { id name price userMS(userId: $userId) { id __key1___typename:__typename __key1_id:id } __key1___typename:__typename __key1_id:id } }"
-      variables: { "userId": "user1" }
+      query: "query\n{ topProductsMS { id name price userMS(userId: \"user1\") { id __key1___typename:__typename __key1_id:id } } }"
     - type: "flatten"
       service: "users_ms"
       path: "topProductsMS.[userMS]"
@@ -127,14 +141,13 @@ expected_plan:
     - type: "flatten"
       service: "inventory_ms"
       path: "topProductsMS"
-      prefix: 1
-      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on ProductMS { stock warehouse } } }"
+      prefix: 2
+      query: "query\n{ productMS(id: \"${topProductsMS.id}\") { warehouseInfo { id name location } } }"
     - type: "flatten"
       service: "products_ms"
       path: "topProductsMS"
-      prefix: 1
-      query: "query GetDeliveryEstimate($userId: ID!)\n{ topProductsMS { deliveryEstimate(userId: $userId) } }"
-      variables: { "userId": "user1" }
+      prefix: 3
+      query: "query\n{ topProductsMS { __key3_id:id finalPrice(userId: \"user1\") } }"
 
 assertions:
   - assertion_type: "service_count"
@@ -142,11 +155,11 @@ assertions:
   - assertion_type: "contains_service"
     value: "users_ms"
   - assertion_type: "contains_service"
-    value: "products_ms"
-  - assertion_type: "contains_service"
     value: "inventory_ms"
+  - assertion_type: "contains_service"
+    value: "products_ms"
   - assertion_type: "path_exists"
-    path: "topProductsMS.deliveryEstimate"
+    path: "topProductsMS.finalPrice"
     value: true
   - assertion_type: "node_count"
     value: 4

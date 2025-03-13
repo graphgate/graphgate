@@ -1,0 +1,192 @@
+name: "Requires Complex Arguments Test"
+description: |
+  Tests that the @requires directive correctly handles complex arguments.
+
+  This test verifies that when a field requires data with complex arguments,
+  including nested objects and arrays, the planner correctly resolves the dependencies.
+
+schema:
+  users_complex: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable"
+        ]
+      )
+
+    type UserComplex @key(fields: "id") {
+      id: ID!
+      name: String!
+      userAddresses: [UserAddress!]! @shareable
+      userPaymentMethods: [UserPaymentMethod!]! @shareable
+    }
+
+    type UserAddress {
+      id: ID!
+      street: String!
+      city: String!
+      country: String!
+      isDefault: Boolean!
+    }
+
+    type UserPaymentMethod {
+      id: ID!
+      type: String!
+      isDefault: Boolean!
+    }
+
+    type Query {
+      userComplex(id: ID!): UserComplex @resolve(service: "users_complex")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @shareable on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+  products_complex: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@external",
+          "@requires"
+        ]
+      )
+
+    type ProductComplex @key(fields: "id") {
+      id: ID!
+      name: String!
+      price: Float!
+      # This field requires complex user data with nested objects
+      shippingOptions(userId: ID!, filters: ShippingFilters!): [ShippingOption!]! 
+        @requires(fields: "userComplex(userId: $userId) { userAddresses { id street city country isDefault } }")
+      # This field requires complex user data with arrays
+      paymentOptions(userId: ID!): [PaymentOption!]! 
+        @requires(fields: "userComplex(userId: $userId) { userPaymentMethods { id type isDefault } }")
+      userComplex(userId: ID!): UserComplex
+    }
+
+    input ShippingFilters {
+      priorityOnly: Boolean
+      maxDays: Int
+    }
+
+    type ShippingOption {
+      id: ID!
+      name: String!
+      price: Float!
+      estimatedDays: Int!
+    }
+
+    type PaymentOption {
+      id: ID!
+      name: String!
+      discount: Float
+    }
+
+    type UserComplex @key(fields: "id") {
+      id: ID!
+      userAddresses: [UserAddress!]! @external
+      userPaymentMethods: [UserPaymentMethod!]! @external
+    }
+
+    type UserAddress @external {
+      id: ID!
+      street: String!
+      city: String!
+      country: String!
+      isDefault: Boolean!
+    }
+
+    type UserPaymentMethod @external {
+      id: ID!
+      type: String!
+      isDefault: Boolean!
+    }
+
+    type Query {
+      productComplex(id: ID!): ProductComplex @resolve(service: "products_complex")
+    }
+
+    directive @key(fields: String!) on OBJECT
+    directive @external on FIELD_DEFINITION
+    directive @requires(fields: String!) on FIELD_DEFINITION
+    directive @resolve(service: String!) on FIELD_DEFINITION
+
+query: |
+  query GetProductOptions($productId: ID!, $userId: ID!) {
+    productComplex(id: $productId) {
+      id
+      name
+      price
+      shippingOptions(userId: $userId, filters: { priorityOnly: false, maxDays: 7 }) {
+        id
+        name
+        price
+        estimatedDays
+      }
+      paymentOptions(userId: $userId) {
+        id
+        name
+        discount
+      }
+      userComplex(userId: $userId) {
+        id
+        name
+        userAddresses {
+          id
+          street
+          city
+          country
+          isDefault
+        }
+        userPaymentMethods {
+          id
+          type
+          isDefault
+        }
+      }
+    }
+  }
+
+variables: { "productId": "product1", "userId": "user1" }
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products_complex"
+      query: "query GetProductOptions($productId: ID!, $userId: ID!)\n{ productComplex(id: $productId) { id name price userComplex(userId: $userId) { id __key1___typename:__typename __key1_id:id } } }"
+      variables: { "productId": "product1", "userId": "user1" }
+    - type: "flatten"
+      service: "users_complex"
+      path: "productComplex.userComplex"
+      prefix: 1
+      query: "query($representations:[_Any!]!) { _entities(representations:$representations) { ... on UserComplex { name userAddresses { id street city country isDefault } userPaymentMethods { id type isDefault } } } }"
+    - type: "parallel"
+      nodes:
+        - type: "flatten"
+          service: "products_complex"
+          path: "productComplex"
+          prefix: 2
+          query: "query GetProductOptions($productId: ID!, $userId: ID!)\n{ productComplex(id: $productId) { __key2_id:id shippingOptions(userId: $userId, filters: { priorityOnly: false, maxDays: 7 }) { id name price estimatedDays } paymentOptions(userId: $userId) { id name discount } } }"
+          variables: { "productId": "product1", "userId": "user1" }
+
+assertions:
+  - assertion_type: "service_count"
+    value: 2
+  - assertion_type: "contains_service"
+    value: "users_complex"
+  - assertion_type: "contains_service"
+    value: "products_complex"
+  - assertion_type: "path_exists"
+    path: "productComplex.shippingOptions"
+    value: true
+  - assertion_type: "path_exists"
+    path: "productComplex.paymentOptions"
+    value: true
+  - assertion_type: "node_count"
+    value: 3
