@@ -1,12 +1,13 @@
 use graphgate_schema::{MetaField, MetaType};
 use parser::types::Field;
 
-use super::{
-    context::Context,
-    directive_handler::DirectiveHandler,
-    utils::{is_list, MAX_FIELD_REPETITIONS, MAX_PATH_LENGTH, MIN_PATH_LENGTH_FOR_PATTERN_CHECK},
-};
 use crate::{
+    builder::{
+        context::Context,
+        directive_handlers::{ProvidesDirectiveHandler, RequiresDirectiveHandler, TagDirectiveHandler},
+        directive_registry::DirectiveRegistry,
+        utils::{is_list, MAX_FIELD_REPETITIONS, MAX_PATH_LENGTH, MIN_PATH_LENGTH_FOR_PATTERN_CHECK},
+    },
     plan::{PathSegment, ResponsePath},
     types::{FetchEntity, FetchEntityGroup, FetchEntityKey, FieldRef, SelectionRef, SelectionRefSet},
 };
@@ -14,27 +15,28 @@ use crate::{
 /// Resolver for GraphQL fields
 pub struct FieldResolver<'a> {
     pub(super) context: &'a mut Context<'a>,
-    directive_handler: DirectiveHandler<'a>,
+    directive_registry: DirectiveRegistry<'a>,
 }
 
 impl<'a> FieldResolver<'a> {
     /// Create a new field resolver
     pub fn new(context: &'a mut Context<'a>) -> Self {
-        // Create a new field resolver with a placeholder directive handler
+        // Create a new field resolver
         let mut resolver = Self {
             context,
-            directive_handler: DirectiveHandler::new(),
+            directive_registry: DirectiveRegistry::new(),
         };
 
-        // Set the context for the directive handler
-        // We need to do this in two steps to avoid borrowing issues
-        let context_ptr = resolver.context as *mut Context<'a>;
-
-        // SAFETY: This is safe because we're just creating a new reference to the same context
-        // We're not actually using both references at the same time
-        unsafe {
-            resolver.directive_handler.set_context(&mut *context_ptr);
-        }
+        // Register directive handlers
+        resolver
+            .directive_registry
+            .register(Box::new(RequiresDirectiveHandler::new()));
+        resolver
+            .directive_registry
+            .register(Box::new(ProvidesDirectiveHandler::new()));
+        resolver
+            .directive_registry
+            .register(Box::new(TagDirectiveHandler::new()));
 
         resolver
     }
@@ -68,22 +70,86 @@ impl<'a> FieldResolver<'a> {
         // Determine service
         let service = self.determine_service_for_field(field_definition, parent_type, current_service, field);
 
+        // Handle @tag directive
+        if !field_definition.tags.is_empty() {
+            // For tagged fields, we'll use the TagDirectiveHandler
+            // We need a KeyFields object to pass to the handler, but it's not actually used
+            // So we'll just use any available KeyFields from the parent type
+            if let Some(keys) = parent_type.keys.get(current_service).and_then(|keys| keys.first()) {
+                if let Some(handler) = self.directive_registry.get_mut("tag") {
+                    handler.handle(
+                        self.context,
+                        field,
+                        field_definition,
+                        parent_type,
+                        current_service,
+                        keys,
+                        selection_ref_set,
+                        fetch_entity_group,
+                        path,
+                    );
+                    return;
+                }
+            }
+
+            // If we couldn't find any KeyFields or the handler, we'll just log and continue
+            tracing::debug!("Found field with @tag directive: {}", field.name.node);
+        }
+
+        // Handle @provides directive
+        if let Some(provides) = &field_definition.provides {
+            // Check if the @provides directive can satisfy the requested fields
+            let provides_can_satisfy = self.context.selection_set_satisfied_by_provides(
+                field.name.node.as_str(),
+                &field.selection_set.node,
+                provides,
+            );
+
+            // Only process @provides if it can satisfy the requested fields
+            if provides_can_satisfy {
+                // Use the directive registry to handle the provides directive
+                if let Some(handler) = self.directive_registry.get_mut("provides") {
+                    handler.handle(
+                        self.context,
+                        field,
+                        field_definition,
+                        parent_type,
+                        current_service,
+                        provides,
+                        selection_ref_set,
+                        fetch_entity_group,
+                        path,
+                    );
+                    return;
+                }
+            }
+        }
+
         // Handle @requires directive
         if let Some(requires) = &field_definition.requires {
             // Only process @requires if we're in the service that owns the field
             if service == current_service {
-                // Handle the @requires directive
-                self.directive_handler.handle_requires_directive(
-                    field,
-                    field_definition,
-                    parent_type,
-                    current_service,
-                    requires,
-                    selection_ref_set,
-                    fetch_entity_group,
-                    path,
-                );
-                return;
+                // Use the directive registry to handle the requires directive
+                if let Some(handler) = self.directive_registry.get_mut("requires") {
+                    handler.handle(
+                        self.context,
+                        field,
+                        field_definition,
+                        parent_type,
+                        current_service,
+                        requires,
+                        selection_ref_set,
+                        fetch_entity_group,
+                        path,
+                    );
+                    return;
+                } else {
+                    // If we can't find the requires handler, log a warning and continue with normal processing
+                    tracing::warn!(
+                        "RequiresDirectiveHandler not found in registry for field: {}",
+                        field.name.node
+                    );
+                }
             }
         }
 
@@ -133,11 +199,12 @@ impl<'a> FieldResolver<'a> {
     }
 
     /// Get the field definition from the parent type
-    fn get_field_definition<'b>(&self, parent_type: &'b MetaType, field: &Field) -> Option<&'b MetaField> {
-        parent_type.field_by_name(field.name.node.as_str())
+    fn get_field_definition(&self, parent_type: &'a MetaType, field: &Field) -> Option<&'a MetaField> {
+        let field_name = field.name.node.as_str();
+        parent_type.fields.get(field_name)
     }
 
-    /// Determine which service should handle this field
+    /// Determine the service that owns a field
     fn determine_service_for_field(
         &self,
         field_definition: &'a MetaField,

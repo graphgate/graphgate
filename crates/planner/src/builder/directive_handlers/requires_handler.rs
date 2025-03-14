@@ -2,79 +2,27 @@ use graphgate_schema::{KeyFields, MetaField, MetaType};
 use parser::types::Field;
 use std::collections::HashSet;
 
-use super::{
-    context::Context,
-    utils::{is_list, MAX_PATH_LENGTH},
-};
 use crate::{
+    builder::{
+        context::Context,
+        directive_registry::DirectiveHandlerTrait,
+        utils::{is_list, MAX_PATH_LENGTH},
+    },
     plan::{PathSegment, ResponsePath},
     types::{FetchEntity, FetchEntityGroup, FetchEntityKey, FieldRef, SelectionRef, SelectionRefSet},
 };
 
-/// Handler for GraphQL directives
-pub struct DirectiveHandler<'a> {
-    context: Option<&'a mut Context<'a>>,
-}
+/// Handler for the @requires directive
+pub struct RequiresDirectiveHandler;
 
-impl<'a> DirectiveHandler<'a> {
-    /// Create a new directive handler
+impl RequiresDirectiveHandler {
+    /// Create a new requires directive handler
     pub fn new() -> Self {
-        Self { context: None }
-    }
-
-    /// Set the context for the directive handler
-    pub fn set_context(&mut self, context: &'a mut Context<'a>) {
-        self.context = Some(context);
-    }
-
-    /// Handle the @requires directive
-    #[allow(clippy::too_many_arguments)]
-    pub fn handle_requires_directive(
-        &mut self,
-        field: &'a Field,
-        field_definition: &'a MetaField,
-        parent_type: &'a MetaType,
-        current_service: &'a str,
-        requires: &'a KeyFields,
-        selection_ref_set: &mut SelectionRefSet<'a>,
-        fetch_entity_group: &mut FetchEntityGroup<'a>,
-        path: &mut ResponsePath<'a>,
-    ) {
-        // Safety mechanism to prevent infinite recursion
-        if path.len() > MAX_PATH_LENGTH {
-            return;
-        }
-
-        // Check for field appearing too many times in path (potential loop)
-        if self.should_skip_due_to_recursion(path, field) {
-            return;
-        }
-
-        // Add field to path and selection set
-        self.add_field_to_path_and_selection(path, selection_ref_set, field, field_definition);
-
-        // Process entity for current service
-        let prefix =
-            self.process_entity_for_current_service(fetch_entity_group, current_service, parent_type, field, path);
-
-        // Find required external services
-        let external_services = self.find_external_services_for_requires(requires, parent_type, current_service);
-
-        // Create fetch entities for external services
-        self.create_fetch_entities_for_external_services(
-            fetch_entity_group,
-            external_services,
-            path,
-            parent_type,
-            prefix,
-        );
-
-        // Clean up
-        path.pop();
+        Self
     }
 
     /// Check if we should skip processing due to recursion
-    fn should_skip_due_to_recursion(&self, path: &ResponsePath<'a>, field: &'a Field) -> bool {
+    fn should_skip_due_to_recursion(&self, path: &ResponsePath<'_>, field: &Field) -> bool {
         let mut field_count = 0;
         for segment in path.iter() {
             if segment.name == field.response_key().node.as_str() {
@@ -88,7 +36,7 @@ impl<'a> DirectiveHandler<'a> {
     }
 
     /// Add field to path and selection set
-    fn add_field_to_path_and_selection(
+    fn add_field_to_path_and_selection<'a>(
         &self,
         path: &mut ResponsePath<'a>,
         selection_ref_set: &mut SelectionRefSet<'a>,
@@ -111,16 +59,15 @@ impl<'a> DirectiveHandler<'a> {
     }
 
     /// Process entity for current service
-    fn process_entity_for_current_service(
+    fn process_entity_for_current_service<'a>(
         &mut self,
+        context: &mut Context<'a>,
         fetch_entity_group: &mut FetchEntityGroup<'a>,
         current_service: &'a str,
         parent_type: &'a MetaType,
         field: &'a Field,
         path: &ResponsePath<'a>,
     ) -> usize {
-        let context = self.context.as_mut().expect("Context not set");
-
         // Get the current key ID for this entity
         let prefix = context.take_key_prefix();
 
@@ -146,13 +93,13 @@ impl<'a> DirectiveHandler<'a> {
     }
 
     /// Find external services required by the @requires directive
-    fn find_external_services_for_requires(
+    fn find_external_services_for_requires<'a>(
         &mut self,
+        context: &Context<'a>,
         requires: &'a KeyFields,
         parent_type: &'a MetaType,
         current_service: &'a str,
     ) -> HashSet<&'a str> {
-        let context = self.context.as_ref().expect("Context not set");
         let mut external_services = HashSet::new();
 
         // Parse the requires directive to find required field references
@@ -203,7 +150,7 @@ impl<'a> DirectiveHandler<'a> {
     }
 
     /// Create fetch entities for external services
-    fn create_fetch_entities_for_external_services(
+    fn create_fetch_entities_for_external_services<'a>(
         &mut self,
         fetch_entity_group: &mut FetchEntityGroup<'a>,
         external_services: HashSet<&'a str>,
@@ -230,7 +177,7 @@ impl<'a> DirectiveHandler<'a> {
     }
 
     /// Parse fields from a @requires directive
-    pub fn parse_requires_directive(&self, requires: &'a KeyFields) -> Vec<(&'a str, &'a KeyFields)> {
+    pub fn parse_requires_directive<'a>(&self, requires: &'a KeyFields) -> Vec<(&'a str, &'a KeyFields)> {
         let mut entities = Vec::new();
 
         for (field_path, subfields) in requires.iter() {
@@ -249,5 +196,63 @@ impl<'a> DirectiveHandler<'a> {
         }
 
         entities
+    }
+}
+
+impl<'a> DirectiveHandlerTrait<'a> for RequiresDirectiveHandler {
+    fn name(&self) -> &'static str {
+        "requires"
+    }
+
+    fn handle(
+        &mut self,
+        context: &mut Context<'a>,
+        field: &'a Field,
+        field_definition: &'a MetaField,
+        parent_type: &'a MetaType,
+        current_service: &'a str,
+        requires: &'a KeyFields,
+        selection_ref_set: &mut SelectionRefSet<'a>,
+        fetch_entity_group: &mut FetchEntityGroup<'a>,
+        path: &mut ResponsePath<'a>,
+    ) {
+        // Safety mechanism to prevent infinite recursion
+        if path.len() > MAX_PATH_LENGTH {
+            return;
+        }
+
+        // Check for field appearing too many times in path (potential loop)
+        if self.should_skip_due_to_recursion(path, field) {
+            return;
+        }
+
+        // Add field to path and selection set
+        self.add_field_to_path_and_selection(path, selection_ref_set, field, field_definition);
+
+        // Process entity for current service
+        let prefix = self.process_entity_for_current_service(
+            context,
+            fetch_entity_group,
+            current_service,
+            parent_type,
+            field,
+            path,
+        );
+
+        // Find required external services
+        let external_services =
+            self.find_external_services_for_requires(context, requires, parent_type, current_service);
+
+        // Create fetch entities for external services
+        self.create_fetch_entities_for_external_services(
+            fetch_entity_group,
+            external_services,
+            path,
+            parent_type,
+            prefix,
+        );
+
+        // Clean up
+        path.pop();
     }
 }

@@ -159,18 +159,18 @@ pub fn run_structured_test(test_file: &Path) {
 
     // Add more detailed debugging for the requires_multi_hop test
     if test_file.to_string_lossy().contains("requires_multi_hop") {
-        println!(
+        debug!(
             "Expected plan: {}",
             serde_json::to_string_pretty(&expected_plan_json).unwrap()
         );
-        println!(
+        debug!(
             "Actual plan: {}",
             serde_json::to_string_pretty(&actual_plan_json).unwrap()
         );
 
         // Print services in the plan
         let services = count_services_in_plan(&actual_plan_json);
-        println!("Services in plan: {:?}", services);
+        debug!("Services in plan: {:?}", services);
     }
 
     // Check if the actual plan matches any of the expected plans

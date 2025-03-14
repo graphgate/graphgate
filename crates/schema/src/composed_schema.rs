@@ -90,6 +90,10 @@ pub struct MetaField {
     /// reviews and their authors' names, the gateway can avoid making a separate call to
     /// the users service to fetch the author information.
     pub provides: Option<KeyFields>,
+
+    /// Tags applied to this field using the `@tag` directive.
+    /// Each tag is stored as a string value.
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -118,6 +122,9 @@ pub struct MetaEnumValue {
     pub description: Option<String>,
     pub value: Name,
     pub deprecation: Deprecation,
+    /// Tags applied to this enum value using the `@tag` directive.
+    /// Each tag is stored as a string value.
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -126,6 +133,9 @@ pub struct MetaInputValue {
     pub name: Name,
     pub ty: Type,
     pub default_value: Option<ConstValue>,
+    /// Tags applied to this input value using the `@tag` directive.
+    /// Each tag is stored as a string value.
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -142,6 +152,10 @@ pub struct MetaType {
     pub possible_types: IndexSet<Name>,
     pub enum_values: IndexMap<Name, MetaEnumValue>,
     pub input_fields: IndexMap<Name, MetaInputValue>,
+
+    /// Tags applied to this type using the `@tag` directive.
+    /// Each tag is stored as a string value.
+    pub tags: Vec<String>,
 }
 
 impl MetaType {
@@ -285,6 +299,7 @@ impl ComposedSchema {
                 possible_types: Default::default(),
                 enum_values: Default::default(),
                 input_fields: Default::default(),
+                tags: Default::default(),
             });
         }
 
@@ -331,6 +346,7 @@ impl ComposedSchema {
                                 possible_types: Default::default(),
                                 enum_values: Default::default(),
                                 input_fields: Default::default(),
+                                tags: Default::default(),
                             });
 
                             let mut type_is_shareable = false;
@@ -361,6 +377,12 @@ impl ComposedSchema {
                                     if let Some(resolvable) = get_argument_bool(&directive.node.arguments, "resolvable")
                                     {
                                         type_is_resolvable = resolvable.node;
+                                    }
+                                }
+                                // Process @tag directive - make sure this doesn't interfere with federation directives
+                                else if directive.node.name.node.as_str() == "tag" {
+                                    if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
+                                        meta_type.tags.push(name.node.to_string());
                                     }
                                 }
                             }
@@ -729,7 +751,8 @@ impl ComposedSchema {
                         } else {
                             // Check if the type is marked as shareable before converting
                             let mut type_is_shareable = false;
-                            for directive in &type_definition.node.directives {
+                            let directives = type_definition.node.directives.clone();
+                            for directive in &directives {
                                 if directive.node.name.node.as_str() == "shareable" {
                                     type_is_shareable = true;
                                     break;
@@ -783,6 +806,16 @@ impl ComposedSchema {
                                     let meta_type2 = composed_schema.types.get_mut(&meta_type.name).unwrap();
                                     meta_type2.owner = None;
                                 }
+
+                                // Process @tag directives
+                                for directive in &directives {
+                                    if directive.node.name.node.as_str() == "tag" {
+                                        if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
+                                            let meta_type2 = composed_schema.types.get_mut(&meta_type.name).unwrap();
+                                            meta_type2.tags.push(name.node.to_string());
+                                        }
+                                    }
+                                }
                             } else {
                                 // This is the first time we're seeing this type
                                 // Set the owner for non-shareable types
@@ -791,6 +824,15 @@ impl ComposedSchema {
                                 // Only set an owner if the type is not shareable
                                 if !type_is_shareable {
                                     type_to_insert.owner = Some(service.clone());
+                                }
+
+                                // Process @tag directives
+                                for directive in &directives {
+                                    if directive.node.name.node.as_str() == "tag" {
+                                        if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
+                                            type_to_insert.tags.push(name.node.to_string());
+                                        }
+                                    }
                                 }
 
                                 composed_schema
@@ -1035,6 +1077,7 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
         possible_types: Default::default(),
         enum_values: Default::default(),
         input_fields: Default::default(),
+        tags: Default::default(),
     };
 
     match definition.kind {
@@ -1062,21 +1105,40 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
         },
         types::TypeKind::Enum(EnumType { values }) => {
             type_definition.kind = TypeKind::Enum;
-            type_definition.enum_values.extend(values.into_iter().map(|value| {
-                (value.node.value.node.clone(), MetaEnumValue {
-                    description: value.node.description.map(|description| description.node),
-                    value: value.node.value.node,
-                    deprecation: get_deprecated(&value.node.directives),
+            type_definition.enum_values = values
+                .into_iter()
+                .map(|value| {
+                    let mut enum_value = MetaEnumValue {
+                        description: value.node.description.map(|description| description.node),
+                        value: value.node.value.node.clone(),
+                        deprecation: get_deprecated(&value.node.directives),
+                        tags: Default::default(),
+                    };
+
+                    // Process @tag directives for enum values
+                    for directive in value.node.directives {
+                        if directive.node.name.node.as_str() == "tag" {
+                            if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
+                                enum_value.tags.push(name.node.to_string());
+                            }
+                        }
+                    }
+
+                    (value.node.value.node.clone(), enum_value)
                 })
-            }));
+                .collect();
         },
         types::TypeKind::InputObject(InputObjectType { fields }) => {
             type_definition.kind = TypeKind::InputObject;
-            type_definition.input_fields.extend(
-                fields
-                    .into_iter()
-                    .map(|field| (field.node.name.node.clone(), convert_input_value_definition(field.node))),
-            );
+            type_definition.input_fields = fields
+                .into_iter()
+                .map(|field| {
+                    let name = field.node.name.node.clone();
+                    let input_value = convert_input_value_definition(field.node);
+
+                    (name, input_value)
+                })
+                .collect();
         },
     }
 
@@ -1152,17 +1214,25 @@ fn process_type_definition(composed_schema: &ComposedSchema, definition: TypeDef
                 type_is_resolvable = resolvable.node;
             }
         }
+
+        // Process @tag directive
+        if directive_name == "tag" ||
+            (composed_schema.is_federation_v2() && directive_name == composed_schema.get_namespaced_directive("tag"))
+        {
+            if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
+                type_definition.tags.push(name.node.to_string());
+            }
+        }
     }
 
     // If the type is shareable, ensure it has no owner
     if type_is_shareable {
         type_definition.owner = None;
     } else if !type_is_resolvable {
-        // If the type is not resolvable, it must be owned by this service
+        // If the type is not resolvable, it must be owned by the service that defines it
         type_definition.owner = Some(service.to_string());
-    } else if type_definition.owner.is_none() && !type_definition.is_entity {
-        // If the type is not shareable, not an entity, and has no owner,
-        // it is owned by this service
+    } else if !type_definition.is_entity {
+        // If the type is not an entity and not shareable, it must be owned by the service that defines it
         type_definition.owner = Some(service.to_string());
     }
 
@@ -1170,7 +1240,7 @@ fn process_type_definition(composed_schema: &ComposedSchema, definition: TypeDef
 }
 
 fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
-    let mut field_definition = MetaField {
+    let mut field = MetaField {
         description: definition.description.map(|description| description.node),
         name: definition.name.node,
         arguments: definition
@@ -1183,30 +1253,44 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
         service: None,
         requires: None,
         provides: None,
+        tags: Default::default(),
     };
 
     for directive in definition.directives {
         match directive.node.name.node.as_str() {
             "resolve" => {
                 if let Some(service) = get_argument_str(&directive.node.arguments, "service") {
-                    field_definition.service = Some(service.node.to_string());
+                    field.service = Some(service.node.to_string());
                 }
             },
             "requires" => {
                 if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
-                    field_definition.requires = parse_fields(fields.node).map(convert_key_fields);
+                    if let Some(selection_set) =
+                        parse_fields(fields.node).map(|selection_set| Positioned::new(selection_set, directive.pos))
+                    {
+                        field.requires = Some(convert_key_fields(selection_set.node));
+                    }
                 }
             },
             "provides" => {
                 if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
-                    field_definition.provides = parse_fields(fields.node).map(convert_key_fields);
+                    if let Some(selection_set) =
+                        parse_fields(fields.node).map(|selection_set| Positioned::new(selection_set, directive.pos))
+                    {
+                        field.provides = Some(convert_key_fields(selection_set.node));
+                    }
+                }
+            },
+            "tag" => {
+                if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
+                    field.tags.push(name.node.to_string());
                 }
             },
             _ => {},
         }
     }
 
-    field_definition
+    field
 }
 
 fn convert_key_fields(selection_set: SelectionSet) -> KeyFields {
@@ -1226,12 +1310,24 @@ fn convert_key_fields(selection_set: SelectionSet) -> KeyFields {
 }
 
 fn convert_input_value_definition(arg: parser::types::InputValueDefinition) -> MetaInputValue {
-    MetaInputValue {
+    let mut input_value = MetaInputValue {
         description: arg.description.map(|description| description.node),
         name: arg.name.node,
         ty: arg.ty.node,
         default_value: arg.default_value.map(|default_value| default_value.node),
+        tags: Default::default(),
+    };
+
+    // Process @tag directives for input values
+    for directive in arg.directives {
+        if directive.node.name.node.as_str() == "tag" {
+            if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
+                input_value.tags.push(name.node.to_string());
+            }
+        }
     }
+
+    input_value
 }
 
 fn convert_directive_definition(directive_definition: DirectiveDefinition) -> MetaDirective {
@@ -1311,6 +1407,7 @@ fn finish_schema(composed_schema: &mut ComposedSchema) {
                     name,
                     ty: Type::new("String!").unwrap(),
                     default_value: None,
+                    tags: Default::default(),
                 });
                 arguments
             },
@@ -1319,6 +1416,7 @@ fn finish_schema(composed_schema: &mut ComposedSchema) {
             service: None,
             requires: None,
             provides: None,
+            tags: Default::default(),
         });
 
         let name = Name::new("__schema");
@@ -1331,6 +1429,7 @@ fn finish_schema(composed_schema: &mut ComposedSchema) {
             service: None,
             requires: None,
             provides: None,
+            tags: Default::default(),
         });
     }
 
