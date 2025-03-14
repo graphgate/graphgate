@@ -834,6 +834,8 @@ mod tests {
     #[test_case("tests/federation/invalid_external_test.yaml"; "invalid external")]
     #[test_case("tests/federation/invalid_provides_test.yaml"; "invalid provides")]
     #[test_case("tests/federation/invalid_requires_test.yaml"; "invalid requires")]
+    #[test_case("tests/federation/inaccessible_directive_test.yaml"; "inaccessible directive")]
+    #[test_case("tests/federation/inaccessible_type_test.yaml"; "inaccessible type")]
     fn test_federation(test_file: &str) {
         init_logging();
         run_single_test_file(&PathBuf::from(test_file));

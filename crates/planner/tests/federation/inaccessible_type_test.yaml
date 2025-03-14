@@ -1,0 +1,74 @@
+name: "Inaccessible Type Test"
+description: |
+  Tests that the @inaccessible directive correctly prevents types from being queried.
+
+  The @inaccessible directive marks types that should not be accessible to clients.
+  In this test, we have a Product type with a details field that returns an inaccessible
+  ProductDetails type.
+
+schema:
+  products: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@inaccessible"
+        ]
+      )
+
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String!
+      details: ProductDetails!
+    }
+
+    type ProductDetails @inaccessible {
+      sku: String!
+      price: Float!
+      inventory: Int!
+    }
+
+    type Query {
+      product(id: ID!): Product
+    }
+
+query: |
+  {
+    product(id: "1") {
+      id
+      name
+      details {
+        sku
+        price
+        inventory
+      }
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products"
+      query: "query\n{ product(id: \"1\") { id name } }"
+    - type: "error"
+      message: 'Cannot query field "details" on type "Product". Field returns type "ProductDetails" which is marked as @inaccessible.'
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "products"
+  - assertion_type: "path_exists"
+    path: "product.id"
+    value: true
+  - assertion_type: "path_exists"
+    path: "product.name"
+    value: true
+  - assertion_type: "path_exists"
+    path: "product.details"
+    value: false

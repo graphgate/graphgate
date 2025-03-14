@@ -4,7 +4,12 @@ use parser::types::Field;
 use crate::{
     builder::{
         context::Context,
-        directive_handlers::{ProvidesDirectiveHandler, RequiresDirectiveHandler, TagDirectiveHandler},
+        directive_handlers::{
+            InaccessibleDirectiveHandler,
+            ProvidesDirectiveHandler,
+            RequiresDirectiveHandler,
+            TagDirectiveHandler,
+        },
         directive_registry::DirectiveRegistry,
         utils::{is_list, MAX_FIELD_REPETITIONS, MAX_PATH_LENGTH, MIN_PATH_LENGTH_FOR_PATTERN_CHECK},
     },
@@ -37,6 +42,9 @@ impl<'a> FieldResolver<'a> {
         resolver
             .directive_registry
             .register(Box::new(TagDirectiveHandler::new()));
+        resolver
+            .directive_registry
+            .register(Box::new(InaccessibleDirectiveHandler::new()));
 
         resolver
     }
@@ -66,6 +74,20 @@ impl<'a> FieldResolver<'a> {
             Some(def) => def,
             None => return,
         };
+
+        // Skip inaccessible fields
+        if field_definition.inaccessible {
+            tracing::debug!("Skipping inaccessible field: {}", field.name.node);
+            return;
+        }
+
+        // Skip fields with inaccessible return types
+        if let Some(return_type) = self.context.schema.get_type(&field_definition.ty) {
+            if return_type.inaccessible {
+                tracing::debug!("Skipping field with inaccessible return type: {}", field.name.node);
+                return;
+            }
+        }
 
         // Determine service
         let service = self.determine_service_for_field(field_definition, parent_type, current_service, field);
