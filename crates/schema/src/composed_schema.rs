@@ -93,6 +93,9 @@ pub struct MetaField {
     /// Tags applied to this field using the `@tag` directive.
     /// Each tag is stored as a string value.
     pub tags: Vec<String>,
+
+    /// Whether this field is marked as inaccessible using the `@inaccessible` directive.
+    pub inaccessible: bool,
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -154,6 +157,9 @@ pub struct MetaType {
     /// Tags applied to this type using the `@tag` directive.
     /// Each tag is stored as a string value.
     pub tags: Vec<String>,
+
+    /// Whether this type is marked as inaccessible using the `@inaccessible` directive.
+    pub inaccessible: bool,
 }
 
 impl MetaType {
@@ -298,6 +304,7 @@ impl ComposedSchema {
                 enum_values: Default::default(),
                 input_fields: Default::default(),
                 tags: Default::default(),
+                inaccessible: false,
             });
         }
 
@@ -345,6 +352,7 @@ impl ComposedSchema {
                                 enum_values: Default::default(),
                                 input_fields: Default::default(),
                                 tags: Default::default(),
+                                inaccessible: false,
                             });
 
                             let mut type_is_shareable = false;
@@ -832,15 +840,6 @@ impl ComposedSchema {
                                     }
                                 }
 
-                                // Process @tag directives
-                                for directive in &directives {
-                                    if directive.node.name.node.as_str() == "tag" {
-                                        if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
-                                            type_to_insert.tags.push(name.node.to_string());
-                                        }
-                                    }
-                                }
-
                                 composed_schema
                                     .types
                                     .insert(type_to_insert.name.clone(), type_to_insert);
@@ -1084,6 +1083,7 @@ fn convert_type_definition(definition: TypeDefinition) -> MetaType {
         enum_values: Default::default(),
         input_fields: Default::default(),
         tags: Default::default(),
+        inaccessible: false,
     };
 
     match definition.kind {
@@ -1225,6 +1225,14 @@ fn process_type_definition(composed_schema: &ComposedSchema, definition: TypeDef
                 type_definition.tags.push(name.node.to_string());
             }
         }
+
+        // Process @inaccessible directive
+        if directive_name == "inaccessible" ||
+            (composed_schema.is_federation_v2() &&
+                directive_name == composed_schema.get_namespaced_directive("inaccessible"))
+        {
+            type_definition.inaccessible = true;
+        }
     }
 
     // If the type is shareable, ensure it has no owner
@@ -1256,6 +1264,7 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
         requires: None,
         provides: None,
         tags: Default::default(),
+        inaccessible: false,
     };
 
     for directive in definition.directives {
@@ -1287,6 +1296,9 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
                 if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
                     field.tags.push(name.node.to_string());
                 }
+            },
+            "inaccessible" => {
+                field.inaccessible = true;
             },
             _ => {},
         }
@@ -1417,6 +1429,7 @@ fn finish_schema(composed_schema: &mut ComposedSchema) {
             requires: None,
             provides: None,
             tags: Default::default(),
+            inaccessible: false,
         });
 
         let name = Name::new("__schema");
@@ -1430,6 +1443,7 @@ fn finish_schema(composed_schema: &mut ComposedSchema) {
             requires: None,
             provides: None,
             tags: Default::default(),
+            inaccessible: false,
         });
     }
 

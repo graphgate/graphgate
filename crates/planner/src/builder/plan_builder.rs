@@ -289,6 +289,12 @@ impl<'a> PlanBuilder<'a> {
     ) where
         'a: 'b,
     {
+        // Skip inaccessible types
+        if parent_type.inaccessible {
+            tracing::debug!("Skipping inaccessible type: {}", parent_type.name);
+            return;
+        }
+
         for selection in &selection_set.items {
             match &selection.node {
                 Selection::Field(field) => {
@@ -356,6 +362,15 @@ impl<'a> PlanBuilder<'a> {
     where
         'b: 'a,
     {
+        // Skip inaccessible types
+        if parent_type.inaccessible {
+            tracing::debug!("Skipping inaccessible type: {}", parent_type.name);
+            return SubscribeNode {
+                subscribe_nodes: Vec::new(),
+                flatten_node: None,
+            };
+        }
+
         let mut field_resolver = FieldResolver::new(ctx);
         let mut root_group = QueryRootGroup::default();
         let mut fetch_entity_group = FetchEntityGroup::default();
