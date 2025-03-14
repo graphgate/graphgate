@@ -822,7 +822,7 @@ impl ComposedSchema {
                                 if !type_is_shareable {
                                     type_to_insert.owner = Some(service.clone());
                                 }
-                                
+
                                 // Process @tag directives
                                 for directive in &directives {
                                     if directive.node.name.node.as_str() == "tag" {
@@ -1264,7 +1264,7 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
                 if let Some(service) = get_argument_str(&directive.node.arguments, "service") {
                     field.service = Some(service.node.to_string());
                 }
-            }
+            },
             "requires" => {
                 if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
                     if let Some(selection_set) =
@@ -1273,7 +1273,7 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
                         field.requires = Some(convert_key_fields(selection_set.node));
                     }
                 }
-            }
+            },
             "provides" => {
                 if let Some(fields) = get_argument_str(&directive.node.arguments, "fields") {
                     if let Some(selection_set) =
@@ -1287,13 +1287,8 @@ fn convert_field_definition(definition: types::FieldDefinition) -> MetaField {
                 if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
                     field.tags.push(name.node.to_string());
                 }
-            }
-            "tag" => {
-                if let Some(name) = get_argument_str(&directive.node.arguments, "name") {
-                    field.tags.push(name.node.to_string());
-                }
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
