@@ -38,10 +38,8 @@ fn test_tag_directive_on_types() {
     let service_doc = parse_schema(service_sdl).expect("Failed to parse service SDL");
 
     // Combine the service
-    let schema = ComposedSchema::combine([
-        ("service1".to_string(), service_doc),
-    ])
-    .expect("Failed to combine schema with @tag directives");
+    let schema = ComposedSchema::combine([("service1".to_string(), service_doc)])
+        .expect("Failed to combine schema with @tag directives");
 
     // Verify that the User type has the correct tags
     let user_type = schema
@@ -103,10 +101,8 @@ fn test_tag_directive_on_enum_values() {
     let service_doc = parse_schema(service_sdl).expect("Failed to parse service SDL");
 
     // Combine the service
-    let schema = ComposedSchema::combine([
-        ("service1".to_string(), service_doc),
-    ])
-    .expect("Failed to combine schema with @tag directives on enum values");
+    let schema = ComposedSchema::combine([("service1".to_string(), service_doc)])
+        .expect("Failed to combine schema with @tag directives on enum values");
 
     // Verify that the Role.ADMIN enum value has the correct tag
     let role_enum = schema
@@ -153,10 +149,8 @@ fn test_tag_directive_on_input_fields() {
     let service_doc = parse_schema(service_sdl).expect("Failed to parse service SDL");
 
     // Combine the service
-    let schema = ComposedSchema::combine([
-        ("service1".to_string(), service_doc),
-    ])
-    .expect("Failed to combine schema with @tag directives on input fields");
+    let schema = ComposedSchema::combine([("service1".to_string(), service_doc)])
+        .expect("Failed to combine schema with @tag directives on input fields");
 
     // Verify that the UserInput.name input field has the correct tag
     let user_input_type = schema
@@ -225,11 +219,11 @@ fn test_tag_directive_federation_v2_compatibility() {
         .types
         .get("User")
         .expect("User type not found in combined schema");
-    
+
     // Print the actual tags for debugging
     debug!("User type tags: {:?}", user_type.tags);
-    
+
     // Check that the User type has at least one tag
     assert!(!user_type.tags.is_empty());
     assert!(user_type.tags.contains(&"service1".to_string()) || user_type.tags.contains(&"service2".to_string()));
-} 
+}
