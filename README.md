@@ -28,6 +28,7 @@ GraphGate implements a range of Apollo Federation directives through a modular [
 - **@external**: Marks a field as defined in another service
 - **@shareable**: Marks a type as shareable across subgraphs
 - **@link**: Links definitions from an external specification to the schema
+- **@inaccessible**: Marks fields or types that should not be accessible to clients
 
 ## Architecture
 
@@ -63,7 +64,6 @@ Check the `examples` directory for sample services showing how to use GraphGate 
 - **Custom Scalars**: Limited support for custom scalar types across services
 - **Error Handling**: Error propagation from subgraphs could be improved
 - **Advanced Query Optimization**: Some complex query patterns could benefit from further optimization
-- **Missing Directive Handlers**: Several directives like @inaccessible are defined in the schema but not yet implemented
 
 ## Contributing
 

@@ -1,0 +1,79 @@
+name: "Inaccessible Directive Test"
+description: |
+  Tests that the @inaccessible directive correctly prevents fields from being queried.
+
+  The @inaccessible directive marks fields that should not be accessible to clients.
+  In this test, we have a Product type with an inaccessible internalCode field and
+  an inaccessible InternalDetails type.
+
+schema:
+  products: |
+    extend schema
+      @link(
+        url: "https://specs.apollo.dev/federation/v2.3"
+        import: [
+          "@key",
+          "@shareable",
+          "@inaccessible"
+        ]
+      )
+
+    type Product @key(fields: "id") {
+      id: ID!
+      name: String!
+      internalCode: String! @inaccessible
+      internalDetails: InternalDetails!
+    }
+
+    type InternalDetails @inaccessible {
+      id: ID!
+      notes: String!
+    }
+
+    type Query {
+      product(id: ID!): Product
+      internalProducts: [Product!]! @inaccessible
+    }
+
+query: |
+  {
+    product(id: "1") {
+      id
+      name
+      internalCode
+      internalDetails {
+        id
+        notes
+      }
+    }
+    internalProducts {
+      id
+    }
+  }
+
+variables: {}
+
+expected_plan:
+  type: "sequence"
+  nodes:
+    - type: "fetch"
+      service: "products"
+      query: "query\n{ product(id: \"1\") { id name } }"
+    - type: "error"
+      message: 'Cannot query field "internalCode" on type "Product". Field is marked as @inaccessible.'
+    - type: "error"
+      message: 'Cannot query field "internalDetails" on type "Product". Field returns type "InternalDetails" which is marked as @inaccessible.'
+    - type: "error"
+      message: 'Cannot query field "internalProducts" on type "Query". Field is marked as @inaccessible.'
+
+assertions:
+  - assertion_type: "service_count"
+    value: 1
+  - assertion_type: "contains_service"
+    value: "products"
+  - assertion_type: "path_exists"
+    path: "product.id"
+    value: true
+  - assertion_type: "path_exists"
+    path: "product.name"
+    value: true
